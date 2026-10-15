@@ -4,13 +4,15 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { envValidationSchema } from './config/env.validation.js';
 import { HealthModule } from './health/health.module.js';
-import { PrismaService } from './database/prisma/prisma.service.js';
 import { PrismaModule } from './database/prisma/prisma.module.js';
 import { PlansModule } from './modules/plans/plans.module.js';
 import { CatalogsModule } from './modules/catalogs/catalogs.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { PaymentsModule } from './modules/payments/payments.module.js';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module.js';
+import { PrismaService } from './database/prisma/prisma.service.js';
+import { WorkspaceModule } from './modules/workspace/workspace.module.js';
+import { AuthorizationModule } from './common/authorization/authorization.module.js';
 
 @Module({
   imports: [
@@ -25,8 +27,10 @@ import { SubscriptionsModule } from './modules/subscriptions/subscriptions.modul
     AuthModule,
     PaymentsModule,
     SubscriptionsModule,
+    WorkspaceModule,
+    AuthorizationModule,
   ],
   controllers: [AppController],
-  providers: [AppService, PrismaService],
+  providers: [AppService],
 })
 export class AppModule {}

@@ -1,70 +1,42 @@
 import { PrismaClient } from '@prisma/client';
 
+import {
+  SYSTEM_ROLE_PERMISSIONS,
+} from '../src/common/authorization/constants/role-permissions.constant.js';
+
+import type {
+  PermissionCode,
+} from '../src/common/authorization/constants/permissions.constant.js';
+
 const prisma = new PrismaClient();
+
+// ============================================================
+// CUISINES
+// ============================================================
 
 async function seedCuisines() {
   const cuisines = [
-    {
-      code: 'colombian',
-      name: 'Colombiana',
-      sortOrder: 1,
-    },
-    {
-      code: 'parrilla',
-      name: 'Parrilla',
-      sortOrder: 2,
-    },
-    {
-      code: 'italian',
-      name: 'Italiana',
-      sortOrder: 3,
-    },
-    {
-      code: 'mexican',
-      name: 'Mexicana',
-      sortOrder: 4,
-    },
-    {
-      code: 'asian',
-      name: 'Asiática',
-      sortOrder: 5,
-    },
-    {
-      code: 'seafood',
-      name: 'Mariscos',
-      sortOrder: 6,
-    },
-    {
-      code: 'fast-food',
-      name: 'Comida rápida',
-      sortOrder: 7,
-    },
-    {
-      code: 'cafe',
-      name: 'Café',
-      sortOrder: 8,
-    },
-    {
-      code: 'other',
-      name: 'Otra',
-      sortOrder: 9,
-    },
+    { code: 'colombian', name: 'Colombiana', sortOrder: 1 },
+    { code: 'parrilla', name: 'Parrilla', sortOrder: 2 },
+    { code: 'italian', name: 'Italiana', sortOrder: 3 },
+    { code: 'mexican', name: 'Mexicana', sortOrder: 4 },
+    { code: 'asian', name: 'Asiática', sortOrder: 5 },
+    { code: 'seafood', name: 'Mariscos', sortOrder: 6 },
+    { code: 'fast-food', name: 'Comida rápida', sortOrder: 7 },
+    { code: 'cafe', name: 'Café', sortOrder: 8 },
+    { code: 'other', name: 'Otra', sortOrder: 9 },
   ];
 
   for (const cuisine of cuisines) {
     await prisma.cuisine.upsert({
-      where: {
-        code: cuisine.code,
-      },
+      where: { code: cuisine.code },
       update: {
         name: cuisine.name,
         sortOrder: cuisine.sortOrder,
         isActive: true,
       },
       create: {
-        code: cuisine.code,
-        name: cuisine.name,
-        sortOrder: cuisine.sortOrder,
+        ...cuisine,
         isActive: true,
       },
     });
@@ -72,6 +44,10 @@ async function seedCuisines() {
 
   console.log(`✓ ${cuisines.length} cuisines seeded`);
 }
+
+// ============================================================
+// PRICE RANGES
+// ============================================================
 
 async function seedPriceRanges() {
   const priceRanges = [
@@ -103,9 +79,7 @@ async function seedPriceRanges() {
 
   for (const priceRange of priceRanges) {
     await prisma.priceRange.upsert({
-      where: {
-        code: priceRange.code,
-      },
+      where: { code: priceRange.code },
       update: {
         symbol: priceRange.symbol,
         name: priceRange.name,
@@ -113,10 +87,7 @@ async function seedPriceRanges() {
         isActive: true,
       },
       create: {
-        code: priceRange.code,
-        symbol: priceRange.symbol,
-        name: priceRange.name,
-        sortOrder: priceRange.sortOrder,
+        ...priceRange,
         isActive: true,
       },
     });
@@ -124,6 +95,10 @@ async function seedPriceRanges() {
 
   console.log(`✓ ${priceRanges.length} price ranges seeded`);
 }
+
+// ============================================================
+// PLAN FEATURES CATALOG
+// ============================================================
 
 async function seedFeatures() {
   const features = [
@@ -191,18 +166,14 @@ async function seedFeatures() {
 
   for (const feature of features) {
     await prisma.feature.upsert({
-      where: {
-        code: feature.code,
-      },
+      where: { code: feature.code },
       update: {
         name: feature.name,
         description: feature.description,
         isActive: true,
       },
       create: {
-        code: feature.code,
-        name: feature.name,
-        description: feature.description,
+        ...feature,
         isActive: true,
       },
     });
@@ -211,126 +182,101 @@ async function seedFeatures() {
   console.log(`✓ ${features.length} features seeded`);
 }
 
+// ============================================================
+// PLANS
+// ============================================================
+
 async function seedPlans() {
-  const starter = await prisma.plan.upsert({
-    where: {
+  const plans = [
+    {
       code: 'starter',
-    },
-    update: {
       name: 'Starter',
       description: 'Para restaurantes que están comenzando.',
       priceAmount: BigInt(0),
       currency: 'COP',
-      billingInterval: 'MONTH',
+      billingInterval: 'MONTH' as const,
       trialDays: 0,
       maxUsers: null,
       maxActivePromotions: 3,
       maxRestaurants: 1,
       requiresPayment: false,
       isFeatured: false,
-      isActive: true,
       sortOrder: 1,
     },
-    create: {
-      code: 'starter',
-      name: 'Starter',
-      description: 'Para restaurantes que están comenzando.',
-      priceAmount: BigInt(0),
-      currency: 'COP',
-      billingInterval: 'MONTH',
-      trialDays: 0,
-      maxUsers: null,
-      maxActivePromotions: 3,
-      maxRestaurants: 1,
-      requiresPayment: false,
-      isFeatured: false,
-      isActive: true,
-      sortOrder: 1,
-    },
-  });
-
-  const pro = await prisma.plan.upsert({
-    where: {
+    {
       code: 'pro',
-    },
-    update: {
       name: 'Pro',
       description: 'Para restaurantes que quieren crecer.',
       priceAmount: BigInt(39000),
       currency: 'COP',
-      billingInterval: 'MONTH',
+      billingInterval: 'MONTH' as const,
       trialDays: 14,
       maxUsers: null,
       maxActivePromotions: null,
       maxRestaurants: 1,
       requiresPayment: true,
       isFeatured: true,
-      isActive: true,
       sortOrder: 2,
     },
-    create: {
-      code: 'pro',
-      name: 'Pro',
-      description: 'Para restaurantes que quieren crecer.',
-      priceAmount: BigInt(39000),
-      currency: 'COP',
-      billingInterval: 'MONTH',
-      trialDays: 14,
-      maxUsers: null,
-      maxActivePromotions: null,
-      maxRestaurants: 1,
-      requiresPayment: true,
-      isFeatured: true,
-      isActive: true,
-      sortOrder: 2,
-    },
-  });
-
-  const business = await prisma.plan.upsert({
-    where: {
+    {
       code: 'business',
-    },
-    update: {
       name: 'Business',
       description: 'Para equipos y operaciones más grandes.',
       priceAmount: BigInt(89000),
       currency: 'COP',
-      billingInterval: 'MONTH',
+      billingInterval: 'MONTH' as const,
       trialDays: 0,
       maxUsers: null,
       maxActivePromotions: null,
       maxRestaurants: null,
       requiresPayment: true,
       isFeatured: false,
-      isActive: true,
       sortOrder: 3,
     },
-    create: {
-      code: 'business',
-      name: 'Business',
-      description: 'Para equipos y operaciones más grandes.',
-      priceAmount: BigInt(89000),
-      currency: 'COP',
-      billingInterval: 'MONTH',
-      trialDays: 0,
-      maxUsers: null,
-      maxActivePromotions: null,
-      maxRestaurants: null,
-      requiresPayment: true,
-      isFeatured: false,
-      isActive: true,
-      sortOrder: 3,
-    },
-  });
+  ];
 
-  console.log(`✓ Plans seeded: ${starter.code}, ${pro.code}, ${business.code}`);
+  const result: Record<string, { id: string; code: string }> = {};
 
-  return {
-    starter,
-    pro,
-    business,
-  };
+  for (const plan of plans) {
+    const savedPlan = await prisma.plan.upsert({
+      where: { code: plan.code },
+      update: {
+        name: plan.name,
+        description: plan.description,
+        priceAmount: plan.priceAmount,
+        currency: plan.currency,
+        billingInterval: plan.billingInterval,
+        trialDays: plan.trialDays,
+        maxUsers: plan.maxUsers,
+        maxActivePromotions: plan.maxActivePromotions,
+        maxRestaurants: plan.maxRestaurants,
+        requiresPayment: plan.requiresPayment,
+        isFeatured: plan.isFeatured,
+        isActive: true,
+        sortOrder: plan.sortOrder,
+      },
+      create: {
+        ...plan,
+        isActive: true,
+      },
+    });
+
+    result[savedPlan.code] = {
+      id: savedPlan.id,
+      code: savedPlan.code,
+    };
+  }
+
+  console.log(
+    `✓ Plans seeded: ${Object.keys(result).join(', ')}`,
+  );
+
+  return result;
 }
+
+// ============================================================
+// PLAN ↔ FEATURES
+// ============================================================
 
 async function seedPlanFeatures() {
   const plans = await prisma.plan.findMany({
@@ -440,24 +386,224 @@ async function seedPlanFeatures() {
   console.log('✓ Plan features seeded');
 }
 
+// ============================================================
+// PERMISSIONS CATALOG
+// ============================================================
+
+async function seedPermissions() {
+  const permissions = [
+    {
+      code: 'dashboard.view',
+      name: 'Ver dashboard',
+      description: 'Consultar el panel principal.',
+      module: 'dashboard',
+    },
+    {
+      code: 'promotions.view',
+      name: 'Ver promociones',
+      description: 'Consultar promociones.',
+      module: 'promotions',
+    },
+    {
+      code: 'promotions.create',
+      name: 'Crear promociones',
+      description: 'Crear promociones.',
+      module: 'promotions',
+    },
+    {
+      code: 'promotions.update',
+      name: 'Editar promociones',
+      description: 'Modificar promociones.',
+      module: 'promotions',
+    },
+    {
+      code: 'promotions.delete',
+      name: 'Eliminar promociones',
+      description: 'Eliminar promociones.',
+      module: 'promotions',
+    },
+    {
+      code: 'redemptions.view',
+      name: 'Ver canjes',
+      description: 'Consultar los canjes registrados.',
+      module: 'redemptions',
+    },
+    {
+      code: 'redemptions.validate',
+      name: 'Validar canjes',
+      description: 'Validar el canje de promociones.',
+      module: 'redemptions',
+    },
+    {
+      code: 'customers.view',
+      name: 'Ver clientes',
+      description: 'Consultar clientes.',
+      module: 'customers',
+    },
+    {
+      code: 'customers.export',
+      name: 'Exportar clientes',
+      description: 'Exportar información de clientes.',
+      module: 'customers',
+    },
+    {
+      code: 'analytics.view',
+      name: 'Ver analíticas',
+      description: 'Consultar estadísticas.',
+      module: 'analytics',
+    },
+    {
+      code: 'team.view',
+      name: 'Ver equipo',
+      description: 'Consultar miembros del equipo.',
+      module: 'team',
+    },
+    {
+      code: 'team.manage',
+      name: 'Administrar equipo',
+      description: 'Administrar miembros del equipo.',
+      module: 'team',
+    },
+    {
+      code: 'roles.manage',
+      name: 'Administrar roles',
+      description: 'Gestionar roles y sus permisos.',
+      module: 'roles',
+    },
+    {
+      code: 'settings.view',
+      name: 'Ver configuración',
+      description: 'Consultar configuración del restaurante.',
+      module: 'settings',
+    },
+    {
+      code: 'settings.manage',
+      name: 'Administrar configuración',
+      description: 'Modificar configuración del restaurante.',
+      module: 'settings',
+    },
+  ] satisfies Array<{
+    code: PermissionCode;
+    name: string;
+    description: string;
+    module: string;
+  }>;
+
+  for (const permission of permissions) {
+    await prisma.permission.upsert({
+      where: {
+        code: permission.code,
+      },
+      update: {
+        name: permission.name,
+        description: permission.description,
+        module: permission.module,
+        isActive: true,
+      },
+      create: {
+        ...permission,
+        isActive: true,
+      },
+    });
+  }
+
+  console.log(`✓ ${permissions.length} permissions seeded`);
+}
+
+// ============================================================
+// SYSTEM ROLE ↔ PERMISSIONS
+// ============================================================
+
+async function seedRolePermissions() {
+  const systemRoleIds = {
+    OWNER: 'system_role_owner',
+    ADMIN: 'system_role_admin',
+    MANAGER: 'system_role_manager',
+    STAFF: 'system_role_staff',
+  } as const;
+
+  for (const [roleCode, permissionCodes] of Object.entries(
+    SYSTEM_ROLE_PERMISSIONS,
+  )) {
+    const roleId =
+      systemRoleIds[roleCode as keyof typeof systemRoleIds];
+
+    const role = await prisma.role.findFirst({
+      where: {
+        id: roleId,
+        code: roleCode,
+        restaurantId: null,
+        isSystem: true,
+        isActive: true,
+      },
+    });
+
+    if (!role) {
+      throw new Error(
+        `System role not found or inactive: ${roleCode}`,
+      );
+    }
+
+    for (const permissionCode of permissionCodes) {
+      const permission = await prisma.permission.findUnique({
+        where: {
+          code: permissionCode,
+        },
+      });
+
+      if (!permission || !permission.isActive) {
+        throw new Error(
+          `Active permission not found: ${permissionCode}`,
+        );
+      }
+
+      await prisma.rolePermission.upsert({
+        where: {
+          roleId_permissionId: {
+            roleId: role.id,
+            permissionId: permission.id,
+          },
+        },
+        update: {},
+        create: {
+          roleId: role.id,
+          permissionId: permission.id,
+        },
+      });
+    }
+  }
+
+  console.log('✓ System role permissions seeded');
+}
+
+// ============================================================
+// MAIN
+// ============================================================
+
 async function main() {
   console.log('🌱 Starting PromoTable database seed...\n');
 
   await seedCuisines();
   await seedPriceRanges();
   await seedFeatures();
+
   await seedPlans();
   await seedPlanFeatures();
 
-  console.log('\n✅ PromoTable database seed completed successfully.');
+  await seedPermissions();
+  await seedRolePermissions();
+
+  console.log(
+    '\n✅ PromoTable database seed completed successfully.',
+  );
 }
 
 main()
-  .catch((error) => {
+  .catch((error: unknown) => {
     console.error('\n❌ Seed failed:');
     console.error(error);
 
-    process.exit(1);
+    process.exitCode = 1;
   })
   .finally(async () => {
     await prisma.$disconnect();

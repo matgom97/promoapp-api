@@ -13,9 +13,14 @@ import cookieParser from 'cookie-parser';
 
 import { AppModule } from './app.module.js';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
+import { loggerConfig } from './common/logger/logger.config.js';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+
+    logger: loggerConfig,
+
+  });
 
   const configService =
     app.get(ConfigService);

@@ -7,10 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ============================================================
-// ENUMS
-// ============================================================
-
 enum UserStatus {
   ACTIVE
   INACTIVE
@@ -66,68 +62,82 @@ enum PaymentProvider {
   WOMPI
 }
 
-// ============================================================
-// USER
-// ============================================================
-
 model User {
-  id           String @id @default(cuid())
-  email        String @unique @db.VarChar(191)
-  passwordHash String @db.VarChar(255)
-  firstName    String @db.VarChar(100)
-
-  status UserStatus @default(ACTIVE)
-
-  termsAcceptedAt   DateTime?
-  privacyAcceptedAt DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  memberships RestaurantMember[]
-  refreshTokens RefreshToken[]
+  id                      String               @id @default(cuid())
+  email                   String               @unique @db.VarChar(191)
+  passwordHash            String               @db.VarChar(255)
+  firstName               String               @db.VarChar(100)
+  status                  UserStatus           @default(ACTIVE)
+  termsAcceptedAt         DateTime?
+  privacyAcceptedAt       DateTime?
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+  memberships             RestaurantMember[]
+  organizationMemberships OrganizationMember[]
+  refreshTokens           RefreshToken[]
 
   @@index([status])
   @@map("users")
 }
 
-// ============================================================
-// RESTAURANT
-// ============================================================
+model Organization {
+  id            String               @id @default(cuid())
+  name          String               @db.VarChar(150)
+  status        RestaurantStatus     @default(ACTIVE)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  members       OrganizationMember[]
+  restaurants   Restaurant[]
+  subscriptions Subscription[]
+  roles         Role[]
+
+  @@index([status])
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id             String         @id @default(cuid())
+  userId         String
+  organizationId String
+  role           MembershipRole @default(STAFF)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId, role])
+  @@map("organization_members")
+}
 
 model Restaurant {
-  id String @id @default(cuid())
-
-  name        String  @db.VarChar(150)
-  description String? @db.VarChar(500)
-  phone       String? @db.VarChar(30)
-
-  address    String  @db.VarChar(255)
-  city       String  @db.VarChar(100)
-  department String? @db.VarChar(100)
-
-  latitude  Decimal? @db.Decimal(10, 7)
-  longitude Decimal? @db.Decimal(10, 7)
-
-  website   String? @db.VarChar(255)
-  instagram String? @db.VarChar(100)
-  facebook  String? @db.VarChar(255)
-
-  status RestaurantStatus @default(ACTIVE)
-
-  cuisineId    String?
-  priceRangeId String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  cuisine    Cuisine?    @relation(fields: [cuisineId], references: [id])
-  priceRange PriceRange? @relation(fields: [priceRangeId], references: [id])
-
+  id             String             @id @default(cuid())
+  organizationId String
+  name           String             @db.VarChar(150)
+  description    String?            @db.VarChar(500)
+  phone          String?            @db.VarChar(30)
+  address        String             @db.VarChar(255)
+  city           String             @db.VarChar(100)
+  department     String?            @db.VarChar(100)
+  latitude       Decimal?           @db.Decimal(10, 7)
+  longitude      Decimal?           @db.Decimal(10, 7)
+  website        String?            @db.VarChar(255)
+  instagram      String?            @db.VarChar(100)
+  facebook       String?            @db.VarChar(255)
+  status         RestaurantStatus   @default(ACTIVE)
+  cuisineId      String?
+  priceRangeId   String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  cuisine        Cuisine?           @relation(fields: [cuisineId], references: [id])
+  priceRange     PriceRange?        @relation(fields: [priceRangeId], references: [id])
   memberships    RestaurantMember[]
-  subscriptions  Subscription[]
   paymentMethods PaymentMethod[]
+  subscriptions  Subscription[]
+  roles          Role[]
 
+  @@index([organizationId])
   @@index([city])
   @@index([department])
   @@index([status])
@@ -136,250 +146,224 @@ model Restaurant {
   @@map("restaurants")
 }
 
-// ============================================================
-// RESTAURANT MEMBERS
-// ============================================================
-
 model RestaurantMember {
   id           String         @id @default(cuid())
   userId       String
   restaurantId String
   role         MembershipRole @default(STAFF)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  roleId       String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  restaurant   Restaurant     @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  customRole   Role?          @relation(fields: [roleId], references: [id], onDelete: Restrict)
 
   @@unique([userId, restaurantId])
   @@index([restaurantId, role])
+  @@index([roleId])
   @@map("restaurant_members")
 }
 
-// ============================================================
-// CUISINES
-// ============================================================
-
 model Cuisine {
-  id   String @id @default(cuid())
-  code String @unique @db.VarChar(50)
-  name String @db.VarChar(100)
-
-  isActive  Boolean @default(true)
-  sortOrder Int     @default(0)
-
+  id          String       @id @default(cuid())
+  code        String       @unique @db.VarChar(50)
+  name        String       @db.VarChar(100)
+  isActive    Boolean      @default(true)
+  sortOrder   Int          @default(0)
   restaurants Restaurant[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   @@index([isActive, sortOrder])
   @@map("cuisines")
 }
 
-// ============================================================
-// PRICE RANGES
-// ============================================================
-
 model PriceRange {
-  id     String @id @default(cuid())
-  code   String @unique @db.VarChar(20)
-  symbol String @db.VarChar(10)
-  name   String @db.VarChar(100)
-
-  sortOrder Int     @default(0)
-  isActive  Boolean @default(true)
-
+  id          String       @id @default(cuid())
+  code        String       @unique @db.VarChar(20)
+  symbol      String       @db.VarChar(10)
+  name        String       @db.VarChar(100)
+  sortOrder   Int          @default(0)
+  isActive    Boolean      @default(true)
   restaurants Restaurant[]
 
   @@index([isActive, sortOrder])
   @@map("price_ranges")
 }
 
-// ============================================================
-// PLANS
-// ============================================================
-
 model Plan {
-  id String @id @default(cuid())
-
-  code        String  @unique @db.VarChar(50)
-  name        String  @db.VarChar(100)
-  description String? @db.VarChar(500)
-
-  priceAmount BigInt
-  currency    String @default("COP") @db.Char(3)
-
-  billingInterval BillingInterval @default(MONTH)
-  trialDays       Int             @default(0)
-
+  id                  String          @id @default(cuid())
+  code                String          @unique @db.VarChar(50)
+  name                String          @db.VarChar(100)
+  description         String?         @db.VarChar(500)
+  priceAmount         BigInt
+  currency            String          @default("COP") @db.Char(3)
+  billingInterval     BillingInterval @default(MONTH)
+  trialDays           Int             @default(0)
   maxUsers            Int?
   maxActivePromotions Int?
   maxRestaurants      Int?
-
-  requiresPayment Boolean @default(false)
-  isFeatured      Boolean @default(false)
-  isActive        Boolean @default(true)
-  sortOrder       Int     @default(0)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  subscriptions Subscription[]
-  features      PlanFeature[]
+  requiresPayment     Boolean         @default(false)
+  isFeatured          Boolean         @default(false)
+  isActive            Boolean         @default(true)
+  sortOrder           Int             @default(0)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  subscriptions       Subscription[]
+  features            PlanFeature[]
 
   @@index([isActive, sortOrder])
   @@map("plans")
 }
 
-// ============================================================
-// FEATURES
-// ============================================================
-
 model Feature {
-  id String @id @default(cuid())
-
-  code        String  @unique @db.VarChar(80)
-  name        String  @db.VarChar(150)
-  description String? @db.VarChar(500)
-
-  isActive Boolean @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  plans PlanFeature[]
+  id          String        @id @default(cuid())
+  code        String        @unique @db.VarChar(80)
+  name        String        @db.VarChar(150)
+  description String?       @db.VarChar(500)
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  plans       PlanFeature[]
 
   @@map("features")
 }
 
-// ============================================================
-// PLAN FEATURES
-// ============================================================
-
 model PlanFeature {
   planId    String
   featureId String
-
-  plan    Plan    @relation(fields: [planId], references: [id], onDelete: Cascade)
-  feature Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  plan      Plan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  feature   Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
 
   @@id([planId, featureId])
   @@map("plan_features")
 }
 
-// ============================================================
-// SUBSCRIPTIONS
-// ============================================================
-
 model Subscription {
-  id String @id @default(cuid())
-
-  restaurantId String
-  planId       String
-
-  status SubscriptionStatus @default(TRIALING)
-
-  startsAt    DateTime
-  trialEndsAt DateTime?
-
+  id                 String             @id @default(cuid())
+  restaurantId       String
+  organizationId     String
+  planId             String
+  status             SubscriptionStatus @default(TRIALING)
+  startsAt           DateTime
+  trialEndsAt        DateTime?
   currentPeriodStart DateTime?
   currentPeriodEnd   DateTime?
+  canceledAt         DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 
-  canceledAt DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  restaurant Restaurant @relation(fields: [restaurantId], references: [id])
-  plan       Plan       @relation(fields: [planId], references: [id])
-
-  payments Payment[]
+  restaurant   Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  plan         Plan         @relation(fields: [planId], references: [id], onDelete: Restrict)
+  payments     Payment[]
 
   @@index([restaurantId, status])
+  @@index([organizationId, status])
   @@index([planId])
   @@map("subscriptions")
 }
 
-// ============================================================
-// PAYMENT METHODS
-// ============================================================
-
 model PaymentMethod {
-  id String @id @default(cuid())
-
-  restaurantId String
-
-  provider PaymentProvider     @default(WOMPI)
-  type     PaymentMethodType
-  status   PaymentMethodStatus @default(ACTIVE)
-
-  providerPaymentSourceId String @unique @db.VarChar(191)
-
-  brand    String? @db.VarChar(50)
-  lastFour String? @db.VarChar(4)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  restaurant Restaurant @relation(fields: [restaurantId], references: [id])
-
-  payments Payment[]
+  id                      String              @id @default(cuid())
+  restaurantId            String
+  provider                PaymentProvider     @default(WOMPI)
+  type                    PaymentMethodType
+  status                  PaymentMethodStatus @default(ACTIVE)
+  providerPaymentSourceId String              @unique @db.VarChar(191)
+  brand                   String?             @db.VarChar(50)
+  lastFour                String?             @db.VarChar(4)
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  restaurant              Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  payments                Payment[]
 
   @@index([restaurantId, status])
   @@map("payment_methods")
 }
 
-// ============================================================
-// PAYMENTS
-// ============================================================
-
 model Payment {
-  id String @id @default(cuid())
-
-  subscriptionId  String
-  paymentMethodId String?
-
-  provider PaymentProvider @default(WOMPI)
-
-  providerTransactionId String? @unique @db.VarChar(191)
-  reference             String  @unique @db.VarChar(100)
-
-  amount   BigInt
-  currency String @default("COP") @db.Char(3)
-
-  status PaymentStatus @default(PENDING)
-
-  paidAt DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  subscription  Subscription   @relation(fields: [subscriptionId], references: [id])
-  paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  id                    String          @id @default(cuid())
+  subscriptionId        String
+  paymentMethodId       String?
+  provider              PaymentProvider @default(WOMPI)
+  providerTransactionId String?         @unique @db.VarChar(191)
+  reference             String          @unique @db.VarChar(100)
+  amount                BigInt
+  currency              String          @default("COP") @db.Char(3)
+  status                PaymentStatus   @default(PENDING)
+  paidAt                DateTime?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+  subscription          Subscription    @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  paymentMethod         PaymentMethod?  @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
 
   @@index([subscriptionId, status])
   @@index([status])
   @@map("payments")
 }
 
-// ============================================================
-// RefreshToken
-// ============================================================
-
-
 model RefreshToken {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  tokenHash String   @unique @db.VarChar(255)
+  tokenHash String    @unique @db.VarChar(255)
   expiresAt DateTime
   revokedAt DateTime?
-  createdAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])
   @@map("refresh_tokens")
+}
+
+model Role {
+  id             String             @id @default(cuid())
+  code           String             @db.VarChar(50)
+  name           String             @db.VarChar(100)
+  description    String?            @db.VarChar(255)
+  restaurantId   String?
+  organizationId String?
+  isSystem       Boolean            @default(false)
+  isDefault      Boolean            @default(false)
+  isActive       Boolean            @default(true)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  restaurant     Restaurant?        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  organization   Organization?      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions    RolePermission[]
+  members        RestaurantMember[]
+
+  @@unique([restaurantId, code])
+  @@unique([organizationId, code])
+  @@index([restaurantId, isActive])
+  @@index([organizationId, isActive])
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  code        String           @unique @db.VarChar(100)
+  name        String           @db.VarChar(150)
+  description String?          @db.VarChar(255)
+  module      String           @db.VarChar(50)
+  isActive    Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  roles       RolePermission[]
+
+  @@index([module, isActive])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  createdAt    DateTime   @default(now())
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
 }

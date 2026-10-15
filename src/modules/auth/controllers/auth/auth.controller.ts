@@ -117,11 +117,10 @@ export class AuthController {
         @Res({ passthrough: true })
         response: Response,
     ) {
-        const result =
-            await this.authService.login(
-                loginDto.email,
-                loginDto.password,
-            );
+        const result = await this.authService.login(
+            loginDto.email,
+            loginDto.password,
+        );
 
         this.setAuthCookies(
             response,
@@ -132,8 +131,7 @@ export class AuthController {
             message: 'Login successful',
             data: {
                 user: result.user,
-                restaurant: result.restaurant,
-                membership: result.membership,
+                restaurants: result.restaurants,
             },
         };
     }
