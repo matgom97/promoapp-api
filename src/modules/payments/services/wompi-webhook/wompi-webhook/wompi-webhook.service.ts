@@ -78,15 +78,10 @@ export class WompiWebhookService {
     headerChecksum?: string,
   ) {
     /*
-     * 1.
-     * Validamos que sea el evento que
-     * esperamos procesar.
+     * 1. Validamos el evento esperado.
      */
 
-    if (
-      event.event !==
-      'transaction.updated'
-    ) {
+    if (event.event !== 'transaction.updated') {
       return {
         processed: false,
         message: 'Event ignored',
@@ -94,13 +89,10 @@ export class WompiWebhookService {
     }
 
     /*
-     * 2.
-     * Validamos la estructura mínima
-     * del evento.
+     * 2. Validamos la estructura del evento.
      */
 
-    const transaction =
-      event.data?.transaction;
+    const transaction = event.data?.transaction;
 
     if (!transaction) {
       throw new BadRequestException(
@@ -110,9 +102,7 @@ export class WompiWebhookService {
 
     if (
       !event.signature ||
-      !Array.isArray(
-        event.signature.properties,
-      ) ||
+      !Array.isArray(event.signature.properties) ||
       event.signature.properties.length === 0 ||
       !event.signature.checksum
     ) {
@@ -123,9 +113,7 @@ export class WompiWebhookService {
 
     if (
       !event.timestamp ||
-      !Number.isInteger(
-        event.timestamp,
-      )
+      !Number.isInteger(event.timestamp)
     ) {
       throw new BadRequestException(
         'Wompi event timestamp is invalid',
@@ -133,54 +121,26 @@ export class WompiWebhookService {
     }
 
     /*
-     * 3.
-     * Validamos el entorno.
-     *
-     * Wompi utiliza:
-     *
-     * test = Sandbox
-     * prod = Producción
+     * 3. Validamos el entorno.
      */
 
-    this.validateEnvironment(
-      event.environment,
-    );
+    this.validateEnvironment(event.environment);
 
     /*
-     * 4.
-     * Validamos el checksum de Wompi.
-     *
-     * Wompi indica que el checksum puede
-     * recibirse mediante:
-     *
-     * X-Event-Checksum
-     *
-     * o:
-     *
-     * signature.checksum
+     * 4. Validamos el checksum de Wompi.
      */
 
-    this.validateChecksum(
-      event,
-      headerChecksum,
-    );
+    this.validateChecksum(event, headerChecksum);
 
     /*
-     * 5.
-     * Buscamos nuestro Payment.
-     *
-     * Primero buscamos por el ID de
-     * transacción de Wompi.
-     *
-     * Si todavía no existe, utilizamos
-     * la referencia.
+     * 5. Buscamos el pago por ID de transacción.
+     * Si no existe, buscamos por referencia.
      */
 
     let payment =
       await this.prisma.payment.findUnique({
         where: {
-          providerTransactionId:
-            transaction.id,
+          providerTransactionId: transaction.id,
         },
         include: {
           subscription: {
@@ -195,8 +155,7 @@ export class WompiWebhookService {
       payment =
         await this.prisma.payment.findUnique({
           where: {
-            reference:
-              transaction.reference,
+            reference: transaction.reference,
           },
           include: {
             subscription: {
@@ -209,9 +168,7 @@ export class WompiWebhookService {
     }
 
     /*
-     * 6.
-     * Si no encontramos nuestro Payment,
-     * no creamos registros.
+     * 6. Verificamos que exista el pago.
      */
 
     if (!payment) {
@@ -221,49 +178,30 @@ export class WompiWebhookService {
     }
 
     /*
-     * 7.
-     * Validamos que la referencia recibida
-     * corresponda exactamente a nuestro pago.
+     * 7. Validamos la referencia.
      */
 
-    if (
-      transaction.reference !==
-      payment.reference
-    ) {
+    if (transaction.reference !== payment.reference) {
       throw new BadRequestException(
         'Wompi transaction reference does not match payment',
       );
     }
 
     /*
-     * 8.
-     * Validamos el monto.
+     * 8. Validamos el monto.
      *
-     * Nuestro Payment almacena el valor
-     * en pesos COP.
-     *
-     * Wompi trabaja en centavos.
-     *
-     * Ejemplo:
-     *
-     * BD:
-     * 39000
-     *
-     * Wompi:
-     * 3900000
+     * La base de datos almacena pesos COP.
+     * Wompi utiliza centavos.
      */
 
-    const expectedAmountInCents =
-      payment.amount * 100n;
+    const expectedAmountInCents = payment.amount * 100n;
 
-    const receivedAmountInCents =
-      BigInt(
-        transaction.amount_in_cents,
-      );
+    const receivedAmountInCents = BigInt(
+      transaction.amount_in_cents,
+    );
 
     if (
-      receivedAmountInCents !==
-      expectedAmountInCents
+      receivedAmountInCents !== expectedAmountInCents
     ) {
       throw new BadRequestException(
         'Wompi transaction amount does not match payment',
@@ -271,239 +209,199 @@ export class WompiWebhookService {
     }
 
     /*
-     * 9.
-     * Validamos la moneda.
+     * 9. Validamos la moneda.
      */
 
-    if (
-      transaction.currency !==
-      payment.currency
-    ) {
+    if (transaction.currency !== payment.currency) {
       throw new BadRequestException(
         'Wompi transaction currency does not match payment',
       );
     }
 
     /*
-     * 10.
-     * Convertimos el estado de Wompi
-     * al enum de nuestro sistema.
+     * 10. Convertimos el estado de Wompi.
      */
 
-    const paymentStatus =
-      this.mapPaymentStatus(
-        transaction.status,
-      );
+    const paymentStatus = this.mapPaymentStatus(
+      transaction.status,
+    );
 
     /*
-     * 11.
-     * Actualizamos Payment y Subscription
-     * dentro de una única transacción.
+     * 11. Actualizamos el pago y la suscripción
+     * dentro de una transacción.
      */
 
-    const result =
-      await this.prisma.$transaction(
-        async (tx) => {
-          const currentPayment =
-            await tx.payment.findUnique({
-              where: {
-                id: payment!.id,
-              },
-              include: {
-                subscription: true,
-              },
-            });
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        const currentPayment =
+          await tx.payment.findUnique({
+            where: {
+              id: payment!.id,
+            },
+            include: {
+              subscription: true,
+            },
+          });
 
-          if (!currentPayment) {
-            throw new BadRequestException(
-              'Payment no longer exists',
+        if (!currentPayment) {
+          throw new BadRequestException(
+            'Payment no longer exists',
+          );
+        }
+
+        /*
+         * 12. Protección contra estados finales.
+         *
+         * Si el pago ya está aprobado y la suscripción
+         * no tiene fecha de vencimiento, completamos
+         * la fecha sin volver a procesar el pago.
+         */
+
+        if (
+          this.isFinalPaymentStatus(
+            currentPayment.status,
+          )
+        ) {
+          if (
+            currentPayment.status === 'APPROVED' &&
+            paymentStatus === 'APPROVED' &&
+            !currentPayment.subscription.currentPeriodEnd
+          ) {
+            const now = new Date();
+
+            const periodEnd = new Date(now);
+
+            periodEnd.setMonth(
+              periodEnd.getMonth() + 1,
             );
-          }
 
-          /*
-           * 12.
-           * Protección contra estados finales.
-           *
-           * Una vez que un pago está APPROVED,
-           * DECLINED, VOIDED o ERROR,
-           * no permitimos que un evento posterior
-           * lo haga retroceder a otro estado.
-           */
-
-          if (
-            this.isFinalPaymentStatus(
-              currentPayment.status,
-            )
-          ) {
-            /*
-             * Si recibimos exactamente el mismo
-             * estado, es simplemente un webhook
-             * duplicado.
-             */
-
-            if (
-              currentPayment.status ===
-              paymentStatus
-            ) {
-              return {
-                payment:
-                  currentPayment,
-
-                subscription:
-                  currentPayment.subscription,
-
-                alreadyProcessed:
-                  true,
-              };
-            }
-
-            /*
-             * Si llega otro estado después de uno
-             * final, no modificamos el pago.
-             *
-             * Esto evita:
-             *
-             * APPROVED -> PENDING
-             * APPROVED -> ERROR
-             * APPROVED -> DECLINED
-             */
-
-            return {
-              payment:
-                currentPayment,
-
-              subscription:
-                currentPayment.subscription,
-
-              alreadyProcessed:
-                true,
-            };
-          }
-
-          /*
-           * 13.
-           * Si el estado actual y el nuevo estado
-           * son iguales, no necesitamos actualizar.
-           */
-
-          if (
-            currentPayment.status ===
-            paymentStatus
-          ) {
-            return {
-              payment:
-                currentPayment,
-
-              subscription:
-                currentPayment.subscription,
-
-              alreadyProcessed:
-                true,
-            };
-          }
-
-          /*
-           * 14.
-           * Actualizamos Payment.
-           */
-
-          const updatedPayment =
-            await tx.payment.update({
-              where: {
-                id:
-                  currentPayment.id,
-              },
-
-              data: {
-                status:
-                  paymentStatus,
-
-                providerTransactionId:
-                  transaction.id,
-
-                paidAt:
-                  paymentStatus ===
-                  'APPROVED'
-                    ? new Date()
-                    : null,
-              },
-            });
-
-          /*
-           * 15.
-           * Por defecto mantenemos la suscripción
-           * sin cambios.
-           */
-
-          let updatedSubscription =
-            currentPayment.subscription;
-
-          /*
-           * 16.
-           * Si Wompi aprobó el pago,
-           * activamos la suscripción.
-           */
-
-          if (
-            paymentStatus ===
-            'APPROVED'
-          ) {
-            const now =
-              new Date();
-
-            updatedSubscription =
+            const updatedSubscription =
               await tx.subscription.update({
                 where: {
-                  id:
-                    currentPayment
-                      .subscriptionId,
+                  id: currentPayment.subscriptionId,
                 },
-
                 data: {
-                  status:
-                    'ACTIVE',
+                  status: 'ACTIVE',
 
                   currentPeriodStart:
-                    now,
+                    currentPayment.subscription
+                      .currentPeriodStart ?? now,
+
+                  currentPeriodEnd: periodEnd,
                 },
               });
+
+            return {
+              payment: currentPayment,
+              subscription: updatedSubscription,
+              alreadyProcessed: true,
+            };
           }
 
+          /*
+           * No modificamos pagos que ya alcanzaron
+           * un estado final.
+           */
+
           return {
-            payment:
-              updatedPayment,
-
-            subscription:
-              updatedSubscription,
-
-            alreadyProcessed:
-              false,
+            payment: currentPayment,
+            subscription: currentPayment.subscription,
+            alreadyProcessed: true,
           };
-        },
-      );
+        }
+
+        /*
+         * 13. Si el estado no cambió, evitamos
+         * procesar nuevamente el evento.
+         */
+
+        if (currentPayment.status === paymentStatus) {
+          return {
+            payment: currentPayment,
+            subscription: currentPayment.subscription,
+            alreadyProcessed: true,
+          };
+        }
+
+        /*
+         * 14. Actualizamos el pago.
+         */
+
+        const updatedPayment =
+          await tx.payment.update({
+            where: {
+              id: currentPayment.id,
+            },
+            data: {
+              status: paymentStatus,
+
+              providerTransactionId: transaction.id,
+
+              paidAt:
+                paymentStatus === 'APPROVED'
+                  ? new Date()
+                  : null,
+            },
+          });
+
+        /*
+         * 15. Por defecto conservamos la suscripción.
+         */
+
+        let updatedSubscription =
+          currentPayment.subscription;
+
+        /*
+         * 16. Si Wompi aprobó el pago, activamos
+         * la suscripción y asignamos sus fechas.
+         */
+
+        if (paymentStatus === 'APPROVED') {
+          const now = new Date();
+
+          const periodEnd = new Date(now);
+
+          periodEnd.setMonth(
+            periodEnd.getMonth() + 1,
+          );
+
+          updatedSubscription =
+            await tx.subscription.update({
+              where: {
+                id: currentPayment.subscriptionId,
+              },
+              data: {
+                status: 'ACTIVE',
+                currentPeriodStart: now,
+                currentPeriodEnd: periodEnd,
+              },
+            });
+        }
+
+        return {
+          payment: updatedPayment,
+          subscription: updatedSubscription,
+          alreadyProcessed: false,
+        };
+      },
+    );
 
     /*
-     * 17.
-     * Respuesta final del procesamiento.
+     * 17. Respuesta final.
      */
 
     return {
       processed: true,
 
-      alreadyProcessed:
-        result.alreadyProcessed,
+      alreadyProcessed: result.alreadyProcessed,
 
-      paymentId:
-        result.payment.id,
+      paymentId: result.payment.id,
 
-      subscriptionId:
-        result.subscription.id,
+      subscriptionId: result.subscription.id,
 
-      paymentStatus:
-        result.payment.status,
+      paymentStatus: result.payment.status,
 
-      subscriptionStatus:
-        result.subscription.status,
+      subscriptionStatus: result.subscription.status,
     };
   }
 
@@ -512,28 +410,14 @@ export class WompiWebhookService {
   // ==========================================
 
   private validateEnvironment(
-    wompiEnvironment:
-      | 'test'
-      | 'prod',
+    wompiEnvironment: 'test' | 'prod',
   ): void {
-    /*
-     * Nuestro backend de desarrollo/test
-     * debe recibir eventos de Sandbox.
-     *
-     * Nuestro backend de producción
-     * debe recibir eventos de producción.
-     */
-
     const expectedEnvironment =
-      this.nodeEnvironment ===
-      'production'
+      this.nodeEnvironment === 'production'
         ? 'prod'
         : 'test';
 
-    if (
-      wompiEnvironment !==
-      expectedEnvironment
-    ) {
+    if (wompiEnvironment !== expectedEnvironment) {
       throw new UnauthorizedException(
         'Wompi event environment does not match application environment',
       );
@@ -548,75 +432,33 @@ export class WompiWebhookService {
     event: WompiTransactionUpdatedEvent,
     headerChecksum?: string,
   ): void {
-    const properties =
-      event.signature.properties;
+    const properties = event.signature.properties;
 
-    /*
-     * Wompi puede cambiar las propiedades
-     * utilizadas para construir la firma.
-     *
-     * Por eso NO debemos asumir:
-     *
-     * transaction.id
-     * transaction.status
-     * transaction.amount_in_cents
-     *
-     * como valores fijos.
-     */
-
-    const values =
-      properties.map(
-        (property) =>
-          this.getPropertyValue(
-            event.data,
-            property,
-          ),
-      );
-
-    /*
-     * Wompi calcula:
-     *
-     * valores de properties
-     * +
-     * timestamp
-     * +
-     * events secret
-     */
+    const values = properties.map((property) =>
+      this.getPropertyValue(event.data, property),
+    );
 
     const payload =
       `${values.join('')}${event.timestamp}${this.eventsSecret}`;
 
-    const calculatedChecksum =
-      createHash('sha256')
-        .update(payload)
-        .digest('hex');
+    const calculatedChecksum = createHash('sha256')
+      .update(payload)
+      .digest('hex');
 
-    /*
-     * Preferimos el header HTTP.
-     *
-     * Si no existe, utilizamos el checksum
-     * enviado dentro del body.
-     */
+    const receivedChecksum = (
+      headerChecksum || event.signature.checksum
+    ).trim();
 
-    const receivedChecksum =
-      (
-        headerChecksum ||
-        event.signature.checksum
-      ).trim();
-
-    if (
-      !receivedChecksum
-    ) {
+    if (!receivedChecksum) {
       throw new UnauthorizedException(
         'Wompi event checksum is missing',
       );
     }
 
-    const isValid =
-      this.safeCompare(
-        calculatedChecksum,
-        receivedChecksum,
-      );
+    const isValid = this.safeCompare(
+      calculatedChecksum,
+      receivedChecksum,
+    );
 
     if (!isValid) {
       throw new UnauthorizedException(
@@ -633,42 +475,29 @@ export class WompiWebhookService {
     data: unknown,
     property: string,
   ): string {
-    const parts =
-      property.split('.');
+    const parts = property.split('.');
 
-    let current:
-      unknown =
-      data;
+    let current: unknown = data;
 
-    for (
-      const part of parts
-    ) {
+    for (const part of parts) {
       if (
         current === null ||
-        typeof current !==
-          'object'
+        typeof current !== 'object'
       ) {
         throw new BadRequestException(
           `Wompi signature property "${property}" could not be resolved`,
         );
       }
 
-      const record =
-        current as Record<
-          string,
-          unknown
-        >;
+      const record = current as Record<string, unknown>;
 
-      if (
-        !(part in record)
-      ) {
+      if (!(part in record)) {
         throw new BadRequestException(
           `Wompi signature property "${property}" does not exist`,
         );
       }
 
-      current =
-        record[part];
+      current = record[part];
     }
 
     if (
@@ -680,9 +509,7 @@ export class WompiWebhookService {
       );
     }
 
-    return String(
-      current,
-    );
+    return String(current);
   }
 
   // ==========================================
@@ -693,21 +520,18 @@ export class WompiWebhookService {
     expected: string,
     received: string,
   ): boolean {
-    const expectedBuffer =
-      Buffer.from(
-        expected.toLowerCase(),
-        'utf8',
-      );
+    const expectedBuffer = Buffer.from(
+      expected.toLowerCase(),
+      'utf8',
+    );
 
-    const receivedBuffer =
-      Buffer.from(
-        received.toLowerCase(),
-        'utf8',
-      );
+    const receivedBuffer = Buffer.from(
+      received.toLowerCase(),
+      'utf8',
+    );
 
     if (
-      expectedBuffer.length !==
-      receivedBuffer.length
+      expectedBuffer.length !== receivedBuffer.length
     ) {
       return false;
     }
@@ -725,9 +549,7 @@ export class WompiWebhookService {
   private mapPaymentStatus(
     wompiStatus: string,
   ): PaymentStatus {
-    switch (
-      wompiStatus
-    ) {
+    switch (wompiStatus) {
       case 'APPROVED':
         return 'APPROVED';
 

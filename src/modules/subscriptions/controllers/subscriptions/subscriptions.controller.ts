@@ -14,30 +14,51 @@ import { SubscriptionsService } from '../../services/subscriptions/subscriptions
 
 import { JwtAuthGuard } from '../../../auth/guards/jwt-auth/jwt-auth.guard.js';
 
-@Controller('subscriptions')
-export class SubscriptionsController {
+interface AuthenticatedRequest extends Request {
+  user?: {
+    userId?: string;
+  };
+}
 
+@Controller('subscriptions')
+@UseGuards(JwtAuthGuard)
+export class SubscriptionsController {
   constructor(
-    private readonly subscriptionsService:
-      SubscriptionsService,
+    private readonly subscriptionsService: SubscriptionsService,
   ) {}
 
+  /**
+   * Obtiene la suscripción pendiente de la organización
+   * del usuario autenticado.
+   */
+  @Get('me/pending')
+  @Version('1')
+  findMyPending(
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const userId = request.user?.userId;
+
+    if (!userId) {
+      throw new UnauthorizedException(
+        'User is not authenticated',
+      );
+    }
+
+    return this.subscriptionsService.findMyPending(userId);
+  }
+
+  /**
+   * Obtiene una suscripción específica.
+   */
   @Get(':subscriptionId')
   @Version('1')
-  @UseGuards(JwtAuthGuard)
   findById(
-    @Param('subscriptionId')
-    subscriptionId: string,
-
-    @Req()
-    request: Request,
+    @Param('subscriptionId') subscriptionId: string,
+    @Req() request: AuthenticatedRequest,
   ) {
+    const userId = request.user?.userId;
 
-    const user = request.user as {
-      userId?: string;
-    };
-
-    if (!user?.userId) {
+    if (!userId) {
       throw new UnauthorizedException(
         'User is not authenticated',
       );
@@ -45,7 +66,7 @@ export class SubscriptionsController {
 
     return this.subscriptionsService.findById(
       subscriptionId,
-      user.userId,
+      userId,
     );
   }
 }

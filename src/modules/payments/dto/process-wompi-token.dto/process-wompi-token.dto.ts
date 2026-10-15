@@ -19,4 +19,8 @@ export class ProcessWompiTokenDto {
   @IsString()
   @MaxLength(191)
   sessionId!: string;
+
+  @IsString()
+  @MaxLength(2048)
+  paymentAuthorizationToken!: string;
 }

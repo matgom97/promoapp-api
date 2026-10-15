@@ -86,73 +86,77 @@ export class WompiService {
   // ==========================================
 
   async getAcceptanceTokens() {
+  const response = await fetch(
+    `${this.apiUrl}/merchants/info`,
+    {
+      method: 'GET',
+      headers: {
+        'x-merchant-public-key': this.publicKey,
+      },
+    },
+  );
 
-    const response =
-      await fetch(
-        `${this.apiUrl}/merchants/info`,
-        {
-          method: 'GET',
+  const responseText = await response.text();
 
-          headers: {
-            'x-merchant-public-key':
-              this.publicKey,
-          },
-        },
-      );
+  if (!response.ok) {
+    console.error('Error consultando información del comercio en Wompi:', {
+      status: response.status,
+      response: responseText,
+    });
 
-
-    if (!response.ok) {
-
-      const errorBody =
-        await response.text();
-
-      throw new Error(
-        `Wompi acceptance tokens request failed: ${response.status} - ${errorBody}`,
-      );
-
-    }
-
-
-    const result =
-      await response.json();
-
-
-    const acceptance =
-      result?.data?.presigned_acceptance;
-
-    const personalDataAuth =
-      result?.data?.presigned_personal_data_auth;
-
-
-    if (
-      !acceptance?.acceptance_token ||
-      !personalDataAuth?.acceptance_token
-    ) {
-
-      throw new Error(
-        'Wompi acceptance tokens were not returned',
-      );
-
-    }
-
-
-    return {
-
-      acceptanceToken:
-        acceptance.acceptance_token,
-
-      acceptancePermalink:
-        acceptance.permalink,
-
-      personalDataAuthToken:
-        personalDataAuth.acceptance_token,
-
-      personalDataAuthPermalink:
-        personalDataAuth.permalink,
-
-    };
-
+    throw new Error(
+      `Wompi acceptance tokens request failed: ${response.status}`,
+    );
   }
+
+  let result: {
+    data?: {
+      presigned_acceptance?: {
+        acceptance_token?: string;
+        permalink?: string;
+      };
+      presigned_personal_data_auth?: {
+        acceptance_token?: string;
+        permalink?: string;
+      };
+    };
+  };
+
+  try {
+    result = JSON.parse(responseText);
+  } catch {
+    throw new Error(
+      'Wompi devolvió una respuesta JSON inválida al consultar los tokens.',
+    );
+  }
+
+  const acceptance = result.data?.presigned_acceptance;
+  const personalDataAuth = result.data?.presigned_personal_data_auth;
+
+  if (
+    !acceptance?.acceptance_token ||
+    !personalDataAuth?.acceptance_token
+  ) {
+    console.error(
+      'Wompi no devolvió los tokens esperados.',
+      {
+        hasAcceptanceToken: !!acceptance?.acceptance_token,
+        hasPersonalDataAuthToken: !!personalDataAuth?.acceptance_token,
+      },
+    );
+
+    throw new Error(
+      'Wompi no devolvió los tokens de aceptación esperados.',
+    );
+  }
+
+  return {
+    acceptanceToken: acceptance.acceptance_token,
+    acceptancePermalink: acceptance.permalink,
+    personalDataAuthToken: personalDataAuth.acceptance_token,
+    personalDataAuthPermalink: personalDataAuth.permalink,
+  };
+}
 
 
   // ==========================================

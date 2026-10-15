@@ -83,7 +83,6 @@ export class AuthService {
                 code: true,
                 isActive: true,
                 requiresPayment: true,
-                trialDays: true,
             },
         });
 
@@ -182,15 +181,14 @@ export class AuthService {
             });
 
             // 6.6. Determinar el estado inicial de la suscripción.
+            // No utilizamos pruebas gratuitas.
             const subscriptionStatus = plan.requiresPayment
                 ? 'PENDING'
-                : plan.trialDays > 0
-                    ? 'TRIALING'
-                    : 'ACTIVE';
+                : 'ACTIVE';
 
             const now = new Date();
 
-            // 6.7. Crear suscripción vinculada a organización y restaurante.
+            // 6.7. Crear la suscripción de la organización.
             const subscription = await tx.subscription.create({
                 data: {
                     organizationId: organization.id,
@@ -198,17 +196,7 @@ export class AuthService {
                     planId: plan.id,
                     status: subscriptionStatus,
                     startsAt: now,
-                    trialEndsAt:
-                        plan.trialDays > 0
-                            ? new Date(
-                                now.getTime() +
-                                    plan.trialDays *
-                                    24 *
-                                    60 *
-                                    60 *
-                                    1000,
-                            )
-                            : null,
+                    trialEndsAt: null,
                 },
                 select: {
                     id: true,

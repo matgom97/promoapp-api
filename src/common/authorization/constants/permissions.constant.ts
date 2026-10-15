@@ -21,6 +21,9 @@ export const PERMISSIONS = {
 
     SETTINGS_VIEW: 'settings.view',
     SETTINGS_MANAGE: 'settings.manage',
+
+    BILLING_VIEW: 'billing.view',
+    BILLING_MANAGE: 'billing.manage',
 } as const;
 
 export type PermissionCode =
