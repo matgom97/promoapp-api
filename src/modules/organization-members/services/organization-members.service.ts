@@ -8,6 +8,8 @@ import {
 
 import * as argon2 from 'argon2';
 
+import { Prisma, type PrismaClient } from '@prisma/client';
+
 import { PrismaService } from '../../../database/prisma/prisma.service.js';
 
 import {
@@ -27,15 +29,20 @@ import {
 } from '../dto/assign-restaurants.dto/assign-restaurants.dto.js';
 
 import {
-  MembershipRole,
-  Prisma,
-} from '@prisma/client';
+  PlanLimitsService,
+} from '../../plan-access/application/services/plan-limits.service.js';
+
+import {
+  FeatureAccessService,
+} from '../../plan-access/application/services/feature-access.service.js';
 
 @Injectable()
 export class OrganizationMembersService {
   constructor(
     private readonly prisma: PrismaService,
-  ) { }
+    private readonly planLimitsService: PlanLimitsService,
+    private readonly featureAccessService: FeatureAccessService,
+  ) {}
 
   // =====================================================
   // AUTORIZACIÓN
@@ -89,6 +96,19 @@ export class OrganizationMembersService {
     }
 
     return membership;
+  }
+
+  // =====================================================
+  // VALIDACIÓN DE FUNCIONALIDAD DEL PLAN
+  // =====================================================
+
+  private async assertTeamMembersFeature(
+    organizationId: string,
+  ): Promise<void> {
+    await this.featureAccessService.assertFeatureEnabled(
+      organizationId,
+      'TEAM_MEMBERS',
+    );
   }
 
   // =====================================================
@@ -152,11 +172,6 @@ export class OrganizationMembersService {
       limit = 20,
     } = query;
 
-    /*
-     * Consultamos las asignaciones directamente desde
-     * RestaurantMember. No dependemos de una relación
-     * inversa en el modelo User.
-     */
     let assignedUserIds: string[] = [];
 
     if (restaurantIds?.length) {
@@ -200,17 +215,17 @@ export class OrganizationMembersService {
 
       ...(restaurantIds?.length
         ? {
-          OR: [
-            {
-              allRestaurants: true,
-            },
-            {
-              userId: {
-                in: assignedUserIds,
+            OR: [
+              {
+                allRestaurants: true,
               },
-            },
-          ],
-        }
+              {
+                userId: {
+                  in: assignedUserIds,
+                },
+              },
+            ],
+          }
         : {}),
     };
 
@@ -254,28 +269,28 @@ export class OrganizationMembersService {
     const restaurantMemberships =
       memberIds.length > 0
         ? await this.prisma.restaurantMember.findMany({
-          where: {
-            userId: {
-              in: memberIds,
-            },
-            restaurant: {
-              organizationId,
-            },
-          },
-          select: {
-            userId: true,
-            restaurantId: true,
-            role: true,
-            roleId: true,
-
-            restaurant: {
-              select: {
-                name: true,
-                status: true,
+            where: {
+              userId: {
+                in: memberIds,
+              },
+              restaurant: {
+                organizationId,
               },
             },
-          },
-        })
+            select: {
+              userId: true,
+              restaurantId: true,
+              role: true,
+              roleId: true,
+
+              restaurant: {
+                select: {
+                  name: true,
+                  status: true,
+                },
+              },
+            },
+          })
         : [];
 
     const assignmentsByUser = new Map<
@@ -296,15 +311,15 @@ export class OrganizationMembersService {
     }
 
     const roles = await this.prisma.role.findMany({
-  select: {
-    code: true,
-    name: true,
-  },
-});
+      select: {
+        code: true,
+        name: true,
+      },
+    });
 
-const roleNames = new Map(
-  roles.map((role) => [role.code, role.name]),
-);
+    const roleNames = new Map(
+      roles.map((role) => [role.code, role.name]),
+    );
 
     return {
       data: members.map((member) => ({
@@ -321,14 +336,14 @@ const roleNames = new Map(
         restaurants: member.allRestaurants
           ? []
           : (
-            assignmentsByUser.get(member.userId) ?? []
-          ).map((assignment) => ({
-            id: assignment.restaurantId,
-            name: assignment.restaurant.name,
-            status: assignment.restaurant.status,
-            role: assignment.role,
-            roleId: assignment.roleId,
-          })),
+              assignmentsByUser.get(member.userId) ?? []
+            ).map((assignment) => ({
+              id: assignment.restaurantId,
+              name: assignment.restaurant.name,
+              status: assignment.restaurant.status,
+              role: assignment.role,
+              roleId: assignment.roleId,
+            })),
       })),
 
       pagination: {
@@ -414,12 +429,12 @@ const roleNames = new Map(
       restaurants: member.allRestaurants
         ? []
         : assignments.map((assignment) => ({
-          id: assignment.restaurantId,
-          name: assignment.restaurant.name,
-          status: assignment.restaurant.status,
-          role: assignment.role,
-          roleId: assignment.roleId,
-        })),
+            id: assignment.restaurantId,
+            name: assignment.restaurant.name,
+            status: assignment.restaurant.status,
+            role: assignment.role,
+            roleId: assignment.roleId,
+          })),
     };
   }
 
@@ -432,7 +447,41 @@ const roleNames = new Map(
     organizationId: string,
     dto: CreateOrganizationMemberDto,
   ) {
-    await this.assertCanManageMembers(actorId, organizationId);
+    await this.assertCanManageMembers(
+      actorId,
+      organizationId,
+    );
+
+    // Verificar que el plan permita gestionar miembros.
+    await this.assertTeamMembersFeature(organizationId);
+
+    // Obtener los límites del plan.
+    const plan =
+      await this.planLimitsService.getOrganizationPlan(
+        organizationId,
+      );
+
+    const currentUsers =
+      await this.prisma.organizationMember.count({
+        where: {
+          organizationId,
+        },
+      });
+
+    if (
+      plan.limits.maxUsers !== null &&
+      currentUsers >= plan.limits.maxUsers
+    ) {
+      throw new ForbiddenException({
+        code: 'PLAN_LIMIT_REACHED',
+        message:
+          'La organización alcanzó el límite de usuarios de su plan.',
+        limit: 'maxUsers',
+        maximum: plan.limits.maxUsers,
+        current: currentUsers,
+        plan: plan.planCode,
+      });
+    }
 
     if (dto.role === 'OWNER') {
       throw new BadRequestException(
@@ -454,19 +503,24 @@ const roleNames = new Map(
     const restaurantIds = dto.allRestaurants
       ? []
       : await this.assertRestaurantsBelongToOrganization(
-        organizationId,
-        dto.restaurantIds ?? [],
-      );
+          organizationId,
+          dto.restaurantIds ?? [],
+        );
 
     const existingUser = await this.prisma.user.findUnique({
-      where: { email },
+      where: {
+        email,
+      },
       select: {
         id: true,
         status: true,
       },
     });
 
-    if (existingUser && existingUser.status !== 'ACTIVE') {
+    if (
+      existingUser &&
+      existingUser.status !== 'ACTIVE'
+    ) {
       throw new BadRequestException(
         'This user account is not active',
       );
@@ -487,7 +541,9 @@ const roleNames = new Map(
               organizationId,
             },
           },
-          select: { id: true },
+          select: {
+            id: true,
+          },
         });
 
       if (existingMembership) {
@@ -497,28 +553,27 @@ const roleNames = new Map(
       }
     }
 
-    // Generar el hash únicamente si se creará un usuario nuevo.
     const passwordHash = existingUser
       ? undefined
       : await argon2.hash(dto.password!, {
-        type: argon2.argon2id,
-      });
+          type: argon2.argon2id,
+        });
 
     return this.prisma.$transaction(async (tx) => {
       const user = existingUser
         ? existingUser
         : await tx.user.create({
-          data: {
-            email,
-            firstName: dto.firstName.trim(),
-            passwordHash: passwordHash!,
-            status: 'ACTIVE',
-          },
-          select: {
-            id: true,
-            status: true,
-          },
-        });
+            data: {
+              email,
+              firstName: dto.firstName.trim(),
+              passwordHash: passwordHash!,
+              status: 'ACTIVE',
+            },
+            select: {
+              id: true,
+              status: true,
+            },
+          });
 
       const member = await tx.organizationMember.create({
         data: {
@@ -566,6 +621,8 @@ const roleNames = new Map(
       organizationId,
     );
 
+    await this.assertTeamMembersFeature(organizationId);
+
     const member =
       await this.prisma.organizationMember.findFirst({
         where: {
@@ -602,8 +659,7 @@ const roleNames = new Map(
     }
 
     const nextAllRestaurants =
-      dto.allRestaurants ??
-      member.allRestaurants;
+      dto.allRestaurants ?? member.allRestaurants;
 
     let restaurantIds: string[] | undefined;
 
@@ -614,9 +670,9 @@ const roleNames = new Map(
         dto.restaurantIds.length === 0
           ? []
           : await this.assertRestaurantsBelongToOrganization(
-            organizationId,
-            dto.restaurantIds,
-          );
+              organizationId,
+              dto.restaurantIds,
+            );
     } else if (member.allRestaurants) {
       throw new BadRequestException(
         'Provide restaurantIds when changing from global access to restricted access',
@@ -641,7 +697,9 @@ const roleNames = new Map(
           },
           data: {
             ...(dto.role !== undefined
-              ? { role: dto.role }
+              ? {
+                  role: dto.role,
+                }
               : {}),
 
             allRestaurants: nextAllRestaurants,
@@ -656,12 +714,14 @@ const roleNames = new Map(
           },
         });
 
-      // Cambiar la contraseña solamente cuando se proporciona.
-
       if (dto.password !== undefined) {
-        const passwordHash = await argon2.hash(dto.password, {
-          type: argon2.argon2id,
-        });
+        const passwordHash = await argon2.hash(
+          dto.password,
+          {
+            type: argon2.argon2id,
+          },
+        );
+
         await tx.user.update({
           where: {
             id: member.userId,
@@ -750,6 +810,8 @@ const roleNames = new Map(
       actorId,
       organizationId,
     );
+
+    await this.assertTeamMembersFeature(organizationId);
 
     const member =
       await this.prisma.organizationMember.findFirst({

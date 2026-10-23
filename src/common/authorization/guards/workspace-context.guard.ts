@@ -8,7 +8,9 @@ import {
 
 import type { Request } from 'express';
 
-import { WorkspaceAuthorizationService } from '../services/workspace-authorization.service.js';
+import {
+  WorkspaceAuthorizationService,
+} from '../services/workspace-authorization.service.js';
 
 interface AuthenticatedUser {
   userId: string;
@@ -17,6 +19,7 @@ interface AuthenticatedUser {
 
 interface WorkspaceAuthorization {
   restaurantId: string;
+  organizationId: string;
   permissions: string[];
 }
 
@@ -28,10 +31,13 @@ interface AuthorizedRequest extends Request {
 @Injectable()
 export class WorkspaceContextGuard implements CanActivate {
   constructor(
-    private readonly workspaceAuthorizationService: WorkspaceAuthorizationService,
+    private readonly workspaceAuthorizationService:
+      WorkspaceAuthorizationService,
   ) {}
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
+  async canActivate(
+    context: ExecutionContext,
+  ): Promise<boolean> {
     const request = context
       .switchToHttp()
       .getRequest<AuthorizedRequest>();
@@ -42,7 +48,8 @@ export class WorkspaceContextGuard implements CanActivate {
       );
     }
 
-    const restaurantId = request.header('X-Restaurant-Id');
+    const restaurantId =
+      request.header('X-Restaurant-Id');
 
     if (!restaurantId?.trim()) {
       throw new ForbiddenException(
@@ -50,15 +57,16 @@ export class WorkspaceContextGuard implements CanActivate {
       );
     }
 
-    const permissions =
-      await this.workspaceAuthorizationService.getPermissions(
+    const workspace =
+      await this.workspaceAuthorizationService.getWorkspaceAccess(
         request.user.userId,
         restaurantId,
       );
 
     request.workspaceAuthorization = {
-      restaurantId,
-      permissions,
+      restaurantId: workspace.restaurantId,
+      organizationId: workspace.organizationId,
+      permissions: workspace.permissions,
     };
 
     return true;

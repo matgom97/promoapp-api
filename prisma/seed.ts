@@ -143,6 +143,11 @@ async function seedFeatures() {
       description: 'Gestión de usuarios y permisos.',
     },
     {
+      code: 'TEAM_MEMBERS',
+      name: 'Gestión de miembros',
+      description: 'Creación, modificación y administración de miembros de la organización.',
+    },
+    {
       code: 'MULTIPLE_RESTAURANTS',
       name: 'Múltiples restaurantes',
       description: 'Gestión de múltiples restaurantes.',
@@ -299,6 +304,7 @@ async function seedPlanFeatures() {
           'ADVANCED_ANALYTICS',
           'CUSTOMER_SEGMENTATION',
           'USER_ROLES',
+          'TEAM_MEMBERS',
           'MULTIPLE_RESTAURANTS',
           'ADVANCED_REPORTS',
           'TEAM_MANAGEMENT',
@@ -333,6 +339,7 @@ async function seedPlanFeatures() {
       'ADVANCED_ANALYTICS',
       'CUSTOMER_SEGMENTATION',
       'USER_ROLES',
+      'TEAM_MEMBERS',
     ],
 
     business: [
@@ -344,6 +351,7 @@ async function seedPlanFeatures() {
       'ADVANCED_ANALYTICS',
       'CUSTOMER_SEGMENTATION',
       'USER_ROLES',
+      'TEAM_MEMBERS',
       'MULTIPLE_RESTAURANTS',
       'ADVANCED_REPORTS',
       'TEAM_MANAGEMENT',
@@ -481,6 +489,24 @@ async function seedPermissions() {
       name: 'Administrar configuración',
       description: 'Modificar configuración del restaurante.',
       module: 'settings',
+    },
+    {
+      code: 'roles.view',
+      name: 'Ver roles',
+      description: 'Consultar roles y sus permisos.',
+      module: 'roles',
+    },
+    {
+      code: 'billing.view',
+      name: 'Ver facturación',
+      description: 'Consultar la información de facturación y suscripciones.',
+      module: 'billing',
+    },
+    {
+      code: 'billing.manage',
+      name: 'Administrar facturación',
+      description: 'Gestionar facturación y suscripciones.',
+      module: 'billing',
     },
   ] satisfies Array<{
     code: PermissionCode;

@@ -18,6 +18,10 @@ import {
   PLAN_ACCESS_REPOSITORY,
 } from './plan-access.tokens.js';
 
+import {
+  PlanFeaturesGuard,
+} from './guards/plan-features.guard.js';
+
 @Module({
   imports: [PrismaModule],
 
@@ -28,11 +32,13 @@ import {
     },
     FeatureAccessService,
     PlanLimitsService,
+    PlanFeaturesGuard,
   ],
 
   exports: [
     FeatureAccessService,
     PlanLimitsService,
+    PlanFeaturesGuard,
   ],
 })
 export class PlanAccessModule {}
