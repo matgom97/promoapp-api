@@ -14,6 +14,7 @@ export class PlansService {
         sortOrder: 'asc',
       },
       select: {
+        id: true,
         code: true,
         name: true,
         description: true,
@@ -36,6 +37,7 @@ export class PlansService {
           select: {
             feature: {
               select: {
+                
                 code: true,
                 name: true,
                 description: true,
@@ -47,6 +49,7 @@ export class PlansService {
     });
 
     return plans.map((plan) => ({
+      id: plan.id,
       code: plan.code,
       name: plan.name,
       description: plan.description,

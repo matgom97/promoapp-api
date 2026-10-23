@@ -72,6 +72,7 @@ model User {
   privacyAcceptedAt       DateTime?
   createdAt               DateTime             @default(now())
   updatedAt               DateTime             @updatedAt
+
   memberships             RestaurantMember[]
   organizationMemberships OrganizationMember[]
   refreshTokens           RefreshToken[]
@@ -86,6 +87,7 @@ model Organization {
   status        RestaurantStatus     @default(ACTIVE)
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
+
   members       OrganizationMember[]
   restaurants   Restaurant[]
   subscriptions Subscription[]
@@ -102,6 +104,9 @@ model OrganizationMember {
   role           MembershipRole @default(STAFF)
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
+
+  allRestaurants Boolean        @default(false)
+
   user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -129,6 +134,7 @@ model Restaurant {
   priceRangeId   String?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
+
   organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   cuisine        Cuisine?           @relation(fields: [cuisineId], references: [id])
   priceRange     PriceRange?        @relation(fields: [priceRangeId], references: [id])
@@ -154,6 +160,7 @@ model RestaurantMember {
   roleId       String?
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
+
   user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   restaurant   Restaurant     @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   customRole   Role?          @relation(fields: [roleId], references: [id], onDelete: Restrict)
@@ -209,8 +216,10 @@ model Plan {
   sortOrder           Int             @default(0)
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
-  subscriptions       Subscription[]
-  features            PlanFeature[]
+
+  subscriptions          Subscription[] @relation("CurrentPlan")
+  scheduledSubscriptions Subscription[] @relation("ScheduledPlan")
+  features               PlanFeature[]
 
   @@index([isActive, sortOrder])
   @@map("plans")
@@ -224,6 +233,7 @@ model Feature {
   isActive    Boolean       @default(true)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
+
   plans       PlanFeature[]
 
   @@map("features")
@@ -232,6 +242,7 @@ model Feature {
 model PlanFeature {
   planId    String
   featureId String
+
   plan      Plan    @relation(fields: [planId], references: [id], onDelete: Cascade)
   feature   Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
 
@@ -240,27 +251,39 @@ model PlanFeature {
 }
 
 model Subscription {
-  id                 String             @id @default(cuid())
-  restaurantId       String
-  organizationId     String
-  planId             String
-  status             SubscriptionStatus @default(PENDING)
-  startsAt           DateTime
-  trialEndsAt        DateTime?
-  currentPeriodStart DateTime?
-  currentPeriodEnd   DateTime?
-  canceledAt         DateTime?
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
+  id                      String             @id @default(cuid())
+  restaurantId            String
+  organizationId          String
+  planId                  String
+  scheduledPlanId         String?
+  renewalOfSubscriptionId String?             @unique
 
-  restaurant   Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  plan         Plan         @relation(fields: [planId], references: [id], onDelete: Restrict)
-  payments     Payment[]
+  status                  SubscriptionStatus @default(PENDING)
+  startsAt                DateTime
+  trialEndsAt             DateTime?
+  currentPeriodStart      DateTime?
+  currentPeriodEnd        DateTime?
+  canceledAt              DateTime?
+
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+
+  restaurant              Restaurant         @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  organization            Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  plan                    Plan               @relation("CurrentPlan", fields: [planId], references: [id], onDelete: Restrict)
+  scheduledPlan           Plan?              @relation("ScheduledPlan", fields: [scheduledPlanId], references: [id], onDelete: Restrict)
+
+  renewalOfSubscription   Subscription?      @relation("SubscriptionRenewals", fields: [renewalOfSubscriptionId], references: [id], onDelete: Restrict)
+  renewals                Subscription[]     @relation("SubscriptionRenewals")
+
+  payments                Payment[]
 
   @@index([restaurantId, status])
   @@index([organizationId, status])
   @@index([planId])
+  @@index([scheduledPlanId])
+  @@index([status, currentPeriodEnd])
   @@map("subscriptions")
 }
 
@@ -275,6 +298,7 @@ model PaymentMethod {
   lastFour                String?             @db.VarChar(4)
   createdAt               DateTime            @default(now())
   updatedAt               DateTime            @updatedAt
+
   restaurant              Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
   payments                Payment[]
 
@@ -295,6 +319,7 @@ model Payment {
   paidAt                DateTime?
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
+
   subscription          Subscription    @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
   paymentMethod         PaymentMethod?  @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
 
@@ -310,6 +335,7 @@ model RefreshToken {
   expiresAt DateTime
   revokedAt DateTime?
   createdAt DateTime  @default(now())
+
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
@@ -329,6 +355,7 @@ model Role {
   isActive       Boolean            @default(true)
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
+
   restaurant     Restaurant?        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   organization   Organization?      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   permissions    RolePermission[]
@@ -350,6 +377,7 @@ model Permission {
   isActive    Boolean          @default(true)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
+
   roles       RolePermission[]
 
   @@index([module, isActive])
@@ -360,6 +388,7 @@ model RolePermission {
   roleId       String
   permissionId String
   createdAt    DateTime   @default(now())
+
   role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
   permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 

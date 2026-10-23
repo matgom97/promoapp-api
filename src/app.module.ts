@@ -13,6 +13,10 @@ import { SubscriptionsModule } from './modules/subscriptions/subscriptions.modul
 import { PrismaService } from './database/prisma/prisma.service.js';
 import { WorkspaceModule } from './modules/workspace/workspace.module.js';
 import { AuthorizationModule } from './common/authorization/authorization.module.js';
+import { OrganizationMembersModule } from './modules/organization-members/organization-members.module.js';
+import { PermissionsModule } from './modules/permissions/permissions.module.js';
+import { RolesModule } from './modules/roles/roles.module.js';
+import { RestaurantsModule } from './modules/restaurants/restaurants.module.js';
 
 @Module({
   imports: [
@@ -29,6 +33,10 @@ import { AuthorizationModule } from './common/authorization/authorization.module
     SubscriptionsModule,
     WorkspaceModule,
     AuthorizationModule,
+    OrganizationMembersModule,
+    PermissionsModule,
+    RolesModule,
+    RestaurantsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

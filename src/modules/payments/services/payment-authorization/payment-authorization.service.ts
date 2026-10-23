@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 
 import { JwtService } from '@nestjs/jwt';
+
 import { PrismaService } from '../../../../database/prisma/prisma.service.js';
 
 interface PaymentAuthorizationPayload {
@@ -16,18 +17,27 @@ interface PaymentAuthorizationPayload {
 
 @Injectable()
 export class PaymentAuthorizationService {
+    private readonly tokenLifetimeSeconds = 300;
+
+    private readonly tokenIssuer = 'promoapp-api';
+
+    private readonly tokenAudience = 'promoapp-payment';
+
     constructor(
         private readonly prisma: PrismaService,
         private readonly jwtService: JwtService,
     ) {}
 
     /**
-     * Genera una autorización temporal para iniciar
-     * el pago de una suscripción.
+     * Genera una autorización temporal para pagar
+     * una suscripción pendiente.
      *
-     * Por ahora, únicamente el OWNER puede autorizar
-     * el pago. La delegación a otros usuarios requiere
-     * almacenar una autorización explícita en backend.
+     * Solo el propietario de la organización puede autorizar
+     * el pago.
+     *
+     * Las renovaciones de suscripciones vencidas deben crear
+     * una nueva suscripción PENDING, conservando la anterior
+     * como historial.
      */
     async authorizePayment(
         userId: string,
@@ -45,6 +55,7 @@ export class PaymentAuthorizationService {
                     plan: {
                         select: {
                             requiresPayment: true,
+                            isActive: true,
                         },
                     },
                 },
@@ -58,10 +69,11 @@ export class PaymentAuthorizationService {
 
         if (
             subscription.status !== 'PENDING' ||
-            !subscription.plan.requiresPayment
+            !subscription.plan.requiresPayment ||
+            !subscription.plan.isActive
         ) {
             throw new ForbiddenException(
-                'This subscription does not require a pending payment',
+                'This subscription is not eligible for payment',
             );
         }
 
@@ -102,28 +114,40 @@ export class PaymentAuthorizationService {
             await this.jwtService.signAsync(
                 payload,
                 {
-                    expiresIn: '5m',
-                    issuer: 'promoapp-api',
-                    audience: 'promoapp-payment',
+                    expiresIn: this.tokenLifetimeSeconds,
+                    issuer: this.tokenIssuer,
+                    audience: this.tokenAudience,
                 },
             );
 
         return {
             data: {
                 authorizationToken,
-                expiresInSeconds: 300,
+                expiresInSeconds:
+                    this.tokenLifetimeSeconds,
             },
         };
     }
 
     /**
-     * Verifica la autorización antes de procesar
-     * una solicitud de pago.
+     * Verifica la autorización antes de procesar un pago.
+     *
+     * Vuelve a validar los permisos y el estado actual de
+     * la suscripción para evitar usar autorizaciones obsoletas.
      */
     async verifyPaymentAuthorization(
         token: string,
         subscriptionId: string,
     ): Promise<PaymentAuthorizationPayload> {
+        if (
+            typeof token !== 'string' ||
+            token.trim().length === 0
+        ) {
+            throw new ForbiddenException(
+                'Payment authorization is required',
+            );
+        }
+
         let payload: PaymentAuthorizationPayload;
 
         try {
@@ -131,8 +155,8 @@ export class PaymentAuthorizationService {
                 await this.jwtService.verifyAsync<PaymentAuthorizationPayload>(
                     token,
                     {
-                        issuer: 'promoapp-api',
-                        audience: 'promoapp-payment',
+                        issuer: this.tokenIssuer,
+                        audience: this.tokenAudience,
                     },
                 );
         } catch {
@@ -142,10 +166,14 @@ export class PaymentAuthorizationService {
         }
 
         if (
-            payload.purpose !== 'subscription-payment' ||
-            !payload.sub ||
-            !payload.organizationId ||
-            payload.subscriptionId !== subscriptionId
+            !payload ||
+            typeof payload.sub !== 'string' ||
+            payload.sub.length === 0 ||
+            typeof payload.organizationId !== 'string' ||
+            payload.organizationId.length === 0 ||
+            typeof payload.subscriptionId !== 'string' ||
+            payload.subscriptionId !== subscriptionId ||
+            payload.purpose !== 'subscription-payment'
         ) {
             throw new ForbiddenException(
                 'Payment authorization does not match this subscription',
@@ -177,6 +205,7 @@ export class PaymentAuthorizationService {
                         plan: {
                             select: {
                                 requiresPayment: true,
+                                isActive: true,
                             },
                         },
                     },
@@ -197,7 +226,8 @@ export class PaymentAuthorizationService {
             subscription.organizationId !==
                 payload.organizationId ||
             subscription.status !== 'PENDING' ||
-            !subscription.plan.requiresPayment
+            !subscription.plan.requiresPayment ||
+            !subscription.plan.isActive
         ) {
             throw new ForbiddenException(
                 'The subscription is no longer eligible for payment',

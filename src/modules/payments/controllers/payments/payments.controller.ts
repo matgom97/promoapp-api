@@ -1,36 +1,23 @@
 import {
-
+    BadRequestException,
     Body,
-
     Controller,
-
     Get,
-
     Headers,
-
     HttpCode,
-
     HttpStatus,
-
+    Param,
     Post,
-
     Req,
-
     Res,
-
     UnauthorizedException,
-
     UseGuards,
-
     Version,
-
 } from '@nestjs/common';
 
 import { ConfigService } from '@nestjs/config';
 
-import type { Response } from 'express';
-
-import type { Request } from 'express';
+import type { Response, Request } from 'express';
 
 import { JwtAuthGuard } from '../../../auth/guards/jwt-auth/jwt-auth.guard.js';
 
@@ -43,6 +30,9 @@ import { CreatePaymentMethodDto } from '../../dto/create-payment-method.dto.js';
 import { ProcessWompiTokenDto } from '../../dto/process-wompi-token.dto/process-wompi-token.dto.js';
 
 import { CreatePaymentTransactionDto } from '../../dto/create-payment-transaction.dto/create-payment-transaction.dto.js';
+
+import { AuthorizePaymentDto } from '../../dto/authorize-payment/authorize-payment.dto.js';
+
 
 interface AuthenticatedRequest extends Request {
     user?: {
@@ -59,10 +49,9 @@ export class PaymentsController {
         private readonly configService: ConfigService,
     ) { }
 
-    // ==========================================
-    // WOMPI MERCHANT INFO
-    // ==========================================
-
+    /**
+     * Información del comercio en Wompi.
+     */
     @Get('wompi/merchant-info')
     @Version('1')
     @UseGuards(JwtAuthGuard)
@@ -70,10 +59,9 @@ export class PaymentsController {
         return this.paymentsService.getMerchantInfo();
     }
 
-    // ==========================================
-    // WOMPI ACCEPTANCE TOKENS
-    // ==========================================
-
+    /**
+     * Tokens de aceptación de Wompi.
+     */
     @Get('wompi/acceptance-tokens')
     @Version('1')
     @UseGuards(JwtAuthGuard)
@@ -81,17 +69,16 @@ export class PaymentsController {
         return this.paymentsService.getAcceptanceTokens();
     }
 
-    // ==========================================
-    // AUTHORIZE SUBSCRIPTION PAYMENT
-    // ==========================================
-
+    /**
+     * Autoriza al propietario a iniciar el proceso de pago.
+     */
     @Post('wompi/authorization')
     @Version('1')
     @UseGuards(JwtAuthGuard)
     @HttpCode(HttpStatus.OK)
     async authorizePayment(
         @Req() request: AuthenticatedRequest,
-        @Body('subscriptionId') subscriptionId: string,
+        @Body() dto: AuthorizePaymentDto,
     ) {
         const user = request.user;
 
@@ -101,25 +88,15 @@ export class PaymentsController {
             );
         }
 
-        if (
-            typeof subscriptionId !== 'string' ||
-            subscriptionId.trim().length === 0
-        ) {
-            throw new UnauthorizedException(
-                'A valid subscriptionId is required',
-            );
-        }
-
         return this.paymentAuthorizationService.authorizePayment(
             user.userId,
-            subscriptionId,
+            dto.subscriptionId,
         );
     }
 
-    // ==========================================
-    // CREATE PAYMENT METHOD
-    // ==========================================
-
+    /**
+     * Registra una fuente de pago.
+     */
     @Post('payment-method')
     @Version('1')
     @UseGuards(JwtAuthGuard)
@@ -140,7 +117,7 @@ export class PaymentsController {
 
         if (
             typeof authorizationToken !== 'string' ||
-            authorizationToken.trim().length === 0
+            !authorizationToken.trim()
         ) {
             throw new UnauthorizedException(
                 'Payment authorization is required',
@@ -154,10 +131,12 @@ export class PaymentsController {
         );
     }
 
-    // ==========================================
-    // PROCESS WOMPI WIDGET TOKEN
-    // ==========================================
-
+    /**
+     * Procesa el token generado por el widget de Wompi.
+     *
+     * Responde con JSON para que Angular controle la navegación
+     * y pueda mostrar el estado real del pago.
+     */
     @Post('wompi/token')
     @Version('1')
     @UseGuards(JwtAuthGuard)
@@ -180,12 +159,8 @@ export class PaymentsController {
             user.userId,
         );
 
-        const frontendUrl = this.configService
-            .get<string>('FRONTEND_URL');
-
-        if (!frontendUrl) {
-            return response.status(HttpStatus.OK).json(result);
-        }
+        const frontendUrl =
+            this.configService.getOrThrow<string>('FRONTEND_URL');
 
         const redirectUrl = new URL(
             '/auth/subscription',
@@ -198,18 +173,12 @@ export class PaymentsController {
             dto.subscriptionId,
         );
 
-        return response.redirect(
-            HttpStatus.SEE_OTHER,
-            redirectUrl.toString(),
-        );
+        return response.redirect(303, redirectUrl.toString());
     }
 
-
-
-    // ==========================================
-    // CREATE TRANSACTION
-    // ==========================================
-
+    /**
+     * Crea una transacción usando un método de pago registrado.
+     */
     @Post('transaction')
     @Version('1')
     @UseGuards(JwtAuthGuard)
@@ -230,7 +199,7 @@ export class PaymentsController {
 
         if (
             typeof authorizationToken !== 'string' ||
-            authorizationToken.trim().length === 0
+            !authorizationToken.trim()
         ) {
             throw new UnauthorizedException(
                 'Payment authorization is required',
@@ -241,6 +210,39 @@ export class PaymentsController {
             dto,
             user.userId,
             authorizationToken,
+        );
+    }
+
+    /**
+     * Consulta el pago más reciente de una suscripción.
+     *
+     * Permite recuperar el estado después de cerrar el navegador
+     * o regresar al checkout.
+     */
+    @Get('subscription/:subscriptionId/latest')
+    @Version('1')
+    @UseGuards(JwtAuthGuard)
+    async getLatestSubscriptionPayment(
+        @Req() request: AuthenticatedRequest,
+        @Param('subscriptionId') subscriptionId: string,
+    ) {
+        const user = request.user;
+
+        if (!user?.userId) {
+            throw new UnauthorizedException(
+                'User is not authenticated',
+            );
+        }
+
+        if (!subscriptionId?.trim()) {
+            throw new BadRequestException(
+                'A valid subscriptionId is required',
+            );
+        }
+
+        return this.paymentsService.getLatestSubscriptionPayment(
+            subscriptionId,
+            user.userId,
         );
     }
 }

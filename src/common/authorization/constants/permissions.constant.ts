@@ -18,6 +18,7 @@ export const PERMISSIONS = {
     TEAM_MANAGE: 'team.manage',
 
     ROLES_MANAGE: 'roles.manage',
+    ROLES_VIEW: 'roles.view',
 
     SETTINGS_VIEW: 'settings.view',
     SETTINGS_MANAGE: 'settings.manage',

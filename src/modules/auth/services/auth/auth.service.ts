@@ -171,12 +171,14 @@ export class AuthService {
                 data: {
                     userId: user.id,
                     restaurantId: restaurant.id,
+                    allRestaurants: true,
                     role: 'OWNER',
                     roleId: 'system_role_owner',
                 },
                 select: {
                     id: true,
                     role: true,
+                    allRestaurants: true,
                 },
             });
 
