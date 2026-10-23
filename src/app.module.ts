@@ -17,6 +17,7 @@ import { OrganizationMembersModule } from './modules/organization-members/organi
 import { PermissionsModule } from './modules/permissions/permissions.module.js';
 import { RolesModule } from './modules/roles/roles.module.js';
 import { RestaurantsModule } from './modules/restaurants/restaurants.module.js';
+import { PlanAccessModule } from './modules/plan-access/plan-access.module.js';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { RestaurantsModule } from './modules/restaurants/restaurants.module.js';
     PermissionsModule,
     RolesModule,
     RestaurantsModule,
+    PlanAccessModule,
   ],
   controllers: [AppController],
   providers: [AppService],

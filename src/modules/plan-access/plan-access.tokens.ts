@@ -1,0 +1,3 @@
+export const PLAN_ACCESS_REPOSITORY = Symbol(
+  'PLAN_ACCESS_REPOSITORY',
+);
