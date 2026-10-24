@@ -11,7 +11,11 @@ import { JwtStrategy } from './services/strategies/jwt.strategy.js';
 
 @Module({
   imports: [
-    PassportModule,
+    ConfigModule,
+
+    PassportModule.register({
+      defaultStrategy: 'jwt',
+    }),
 
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -28,8 +32,10 @@ import { JwtStrategy } from './services/strategies/jwt.strategy.js';
           secret: configService.getOrThrow<string>(
             'JWT_ACCESS_SECRET',
           ),
+
           signOptions: {
             expiresIn,
+            algorithm: 'HS256',
           },
         };
       },
@@ -48,6 +54,7 @@ import { JwtStrategy } from './services/strategies/jwt.strategy.js';
 
   exports: [
     AuthService,
+    AuthTokenService,
   ],
 })
 export class AuthModule {}

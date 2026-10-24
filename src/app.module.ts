@@ -1,16 +1,23 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import {
+  ThrottlerGuard,
+  ThrottlerModule,
+} from '@nestjs/throttler';
+
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { envValidationSchema } from './config/env.validation.js';
+
 import { HealthModule } from './health/health.module.js';
 import { PrismaModule } from './database/prisma/prisma.module.js';
+
 import { PlansModule } from './modules/plans/plans.module.js';
 import { CatalogsModule } from './modules/catalogs/catalogs.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { PaymentsModule } from './modules/payments/payments.module.js';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module.js';
-import { PrismaService } from './database/prisma/prisma.service.js';
 import { WorkspaceModule } from './modules/workspace/workspace.module.js';
 import { AuthorizationModule } from './common/authorization/authorization.module.js';
 import { OrganizationMembersModule } from './modules/organization-members/organization-members.module.js';
@@ -25,6 +32,15 @@ import { PlanAccessModule } from './modules/plan-access/plan-access.module.js';
       isGlobal: true,
       validationSchema: envValidationSchema,
     }),
+
+    ThrottlerModule.forRoot([
+      {
+        name: 'default',
+        ttl: 60000,
+        limit: 100,
+      },
+    ]),
+
     HealthModule,
     PrismaModule,
     PlansModule,
@@ -40,7 +56,17 @@ import { PlanAccessModule } from './modules/plan-access/plan-access.module.js';
     RestaurantsModule,
     PlanAccessModule,
   ],
-  controllers: [AppController],
-  providers: [AppService],
+
+  controllers: [
+    AppController,
+  ],
+
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {}

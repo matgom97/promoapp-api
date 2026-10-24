@@ -42,7 +42,7 @@ export class OrganizationMembersService {
     private readonly prisma: PrismaService,
     private readonly planLimitsService: PlanLimitsService,
     private readonly featureAccessService: FeatureAccessService,
-  ) {}
+  ) { }
 
   // =====================================================
   // AUTORIZACIÓN
@@ -215,17 +215,17 @@ export class OrganizationMembersService {
 
       ...(restaurantIds?.length
         ? {
-            OR: [
-              {
-                allRestaurants: true,
+          OR: [
+            {
+              allRestaurants: true,
+            },
+            {
+              userId: {
+                in: assignedUserIds,
               },
-              {
-                userId: {
-                  in: assignedUserIds,
-                },
-              },
-            ],
-          }
+            },
+          ],
+        }
         : {}),
     };
 
@@ -269,28 +269,28 @@ export class OrganizationMembersService {
     const restaurantMemberships =
       memberIds.length > 0
         ? await this.prisma.restaurantMember.findMany({
-            where: {
-              userId: {
-                in: memberIds,
-              },
-              restaurant: {
-                organizationId,
-              },
+          where: {
+            userId: {
+              in: memberIds,
             },
-            select: {
-              userId: true,
-              restaurantId: true,
-              role: true,
-              roleId: true,
+            restaurant: {
+              organizationId,
+            },
+          },
+          select: {
+            userId: true,
+            restaurantId: true,
+            role: true,
+            roleId: true,
 
-              restaurant: {
-                select: {
-                  name: true,
-                  status: true,
-                },
+            restaurant: {
+              select: {
+                name: true,
+                status: true,
               },
             },
-          })
+          },
+        })
         : [];
 
     const assignmentsByUser = new Map<
@@ -336,14 +336,14 @@ export class OrganizationMembersService {
         restaurants: member.allRestaurants
           ? []
           : (
-              assignmentsByUser.get(member.userId) ?? []
-            ).map((assignment) => ({
-              id: assignment.restaurantId,
-              name: assignment.restaurant.name,
-              status: assignment.restaurant.status,
-              role: assignment.role,
-              roleId: assignment.roleId,
-            })),
+            assignmentsByUser.get(member.userId) ?? []
+          ).map((assignment) => ({
+            id: assignment.restaurantId,
+            name: assignment.restaurant.name,
+            status: assignment.restaurant.status,
+            role: assignment.role,
+            roleId: assignment.roleId,
+          })),
       })),
 
       pagination: {
@@ -429,12 +429,12 @@ export class OrganizationMembersService {
       restaurants: member.allRestaurants
         ? []
         : assignments.map((assignment) => ({
-            id: assignment.restaurantId,
-            name: assignment.restaurant.name,
-            status: assignment.restaurant.status,
-            role: assignment.role,
-            roleId: assignment.roleId,
-          })),
+          id: assignment.restaurantId,
+          name: assignment.restaurant.name,
+          status: assignment.restaurant.status,
+          role: assignment.role,
+          roleId: assignment.roleId,
+        })),
     };
   }
 
@@ -452,36 +452,7 @@ export class OrganizationMembersService {
       organizationId,
     );
 
-    // Verificar que el plan permita gestionar miembros.
     await this.assertTeamMembersFeature(organizationId);
-
-    // Obtener los límites del plan.
-    const plan =
-      await this.planLimitsService.getOrganizationPlan(
-        organizationId,
-      );
-
-    const currentUsers =
-      await this.prisma.organizationMember.count({
-        where: {
-          organizationId,
-        },
-      });
-
-    if (
-      plan.limits.maxUsers !== null &&
-      currentUsers >= plan.limits.maxUsers
-    ) {
-      throw new ForbiddenException({
-        code: 'PLAN_LIMIT_REACHED',
-        message:
-          'La organización alcanzó el límite de usuarios de su plan.',
-        limit: 'maxUsers',
-        maximum: plan.limits.maxUsers,
-        current: currentUsers,
-        plan: plan.planCode,
-      });
-    }
 
     if (dto.role === 'OWNER') {
       throw new BadRequestException(
@@ -503,9 +474,9 @@ export class OrganizationMembersService {
     const restaurantIds = dto.allRestaurants
       ? []
       : await this.assertRestaurantsBelongToOrganization(
-          organizationId,
-          dto.restaurantIds ?? [],
-        );
+        organizationId,
+        dto.restaurantIds ?? [],
+      );
 
     const existingUser = await this.prisma.user.findUnique({
       where: {
@@ -532,78 +503,211 @@ export class OrganizationMembersService {
       );
     }
 
-    if (existingUser) {
-      const existingMembership =
-        await this.prisma.organizationMember.findUnique({
-          where: {
-            userId_organizationId: {
-              userId: existingUser.id,
-              organizationId,
-            },
-          },
-          select: {
-            id: true,
-          },
-        });
-
-      if (existingMembership) {
-        throw new ConflictException(
-          'This user already belongs to the organization',
-        );
-      }
-    }
-
     const passwordHash = existingUser
       ? undefined
       : await argon2.hash(dto.password!, {
-          type: argon2.argon2id,
-        });
-
-    return this.prisma.$transaction(async (tx) => {
-      const user = existingUser
-        ? existingUser
-        : await tx.user.create({
-            data: {
-              email,
-              firstName: dto.firstName.trim(),
-              passwordHash: passwordHash!,
-              status: 'ACTIVE',
-            },
-            select: {
-              id: true,
-              status: true,
-            },
-          });
-
-      const member = await tx.organizationMember.create({
-        data: {
-          userId: user.id,
-          organizationId,
-          role: dto.role,
-          allRestaurants: dto.allRestaurants,
-        },
-        select: {
-          id: true,
-          userId: true,
-          organizationId: true,
-          role: true,
-          allRestaurants: true,
-          createdAt: true,
-        },
+        type: argon2.argon2id,
       });
 
-      if (restaurantIds.length > 0) {
-        await tx.restaurantMember.createMany({
-          data: restaurantIds.map((restaurantId) => ({
-            userId: user.id,
-            restaurantId,
-            role: dto.role,
-          })),
-        });
+    try {
+      return await this.prisma.$transaction(
+        async (tx) => {
+          /*
+           * Serializa las operaciones que intenten modificar
+           * los miembros de esta misma organización, siempre
+           * que utilicen este mismo protocolo de bloqueo.
+           */
+          const organizations = await tx.$queryRaw<
+            Array<{ id: string }>
+          >`
+          SELECT id
+          FROM organizations
+          WHERE id = ${organizationId}
+          FOR UPDATE
+        `;
+
+          if (organizations.length === 0) {
+            throw new NotFoundException(
+              'Organization not found',
+            );
+          }
+
+          /*
+           * Volver a comprobar la membresía del actor dentro
+           * de la transacción evita depender exclusivamente
+           * de la validación previa.
+           */
+          const actorMembership =
+            await tx.organizationMember.findUnique({
+              where: {
+                userId_organizationId: {
+                  userId: actorId,
+                  organizationId,
+                },
+              },
+              select: {
+                role: true,
+                user: {
+                  select: {
+                    status: true,
+                  },
+                },
+                organization: {
+                  select: {
+                    status: true,
+                  },
+                },
+              },
+            });
+
+          if (
+            !actorMembership ||
+            actorMembership.user.status !== 'ACTIVE' ||
+            actorMembership.organization.status !== 'ACTIVE' ||
+            !['OWNER', 'ADMIN'].includes(
+              actorMembership.role,
+            )
+          ) {
+            throw new ForbiddenException(
+              'You cannot manage members of this organization',
+            );
+          }
+
+          /*
+           * Comprobar el plan y el cupo dentro de la misma
+           * transacción que crea la membresía.
+           */
+          const plan =
+            await this.planLimitsService.getOrganizationPlan(
+              organizationId,
+            );
+
+          const currentUsers =
+            await tx.organizationMember.count({
+              where: {
+                organizationId,
+              },
+            });
+
+          if (
+            plan.limits.maxUsers !== null &&
+            currentUsers >= plan.limits.maxUsers
+          ) {
+            throw new ForbiddenException({
+              code: 'PLAN_LIMIT_REACHED',
+              message:
+                'La organización alcanzó el límite de usuarios de su plan.',
+              limit: 'maxUsers',
+              maximum: plan.limits.maxUsers,
+              current: currentUsers,
+              plan: plan.planCode,
+            });
+          }
+
+          /*
+           * Resolver el usuario dentro de la transacción.
+           * La restricción única de email sigue siendo la
+           * garantía definitiva contra duplicados.
+           */
+          const user = existingUser
+            ? await tx.user.findUnique({
+              where: {
+                id: existingUser.id,
+              },
+              select: {
+                id: true,
+                status: true,
+              },
+            })
+            : await tx.user.create({
+              data: {
+                email,
+                firstName: dto.firstName.trim(),
+                passwordHash: passwordHash!,
+                status: 'ACTIVE',
+              },
+              select: {
+                id: true,
+                status: true,
+              },
+            });
+
+          if (!user || user.status !== 'ACTIVE') {
+            throw new BadRequestException(
+              'This user account is not active',
+            );
+          }
+
+          const existingMembership =
+            await tx.organizationMember.findUnique({
+              where: {
+                userId_organizationId: {
+                  userId: user.id,
+                  organizationId,
+                },
+              },
+              select: {
+                id: true,
+              },
+            });
+
+          if (existingMembership) {
+            throw new ConflictException(
+              'This user already belongs to the organization',
+            );
+          }
+
+          const member =
+            await tx.organizationMember.create({
+              data: {
+                userId: user.id,
+                organizationId,
+                role: dto.role,
+                allRestaurants: dto.allRestaurants,
+              },
+              select: {
+                id: true,
+                userId: true,
+                organizationId: true,
+                role: true,
+                allRestaurants: true,
+                createdAt: true,
+              },
+            });
+
+          if (restaurantIds.length > 0) {
+            await tx.restaurantMember.createMany({
+              data: restaurantIds.map((restaurantId) => ({
+                userId: user.id,
+                restaurantId,
+                role: dto.role,
+              })),
+            });
+          }
+
+          return member;
+        },
+        {
+          maxWait: 5000,
+          timeout: 10000,
+        },
+      );
+    } catch (error) {
+      /*
+       * Traducir conflictos de restricciones únicas a una
+       * respuesta HTTP consistente.
+       */
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'This user or membership already exists',
+        );
       }
 
-      return member;
-    });
+      throw error;
+    }
   }
 
   // =====================================================
@@ -670,9 +774,9 @@ export class OrganizationMembersService {
         dto.restaurantIds.length === 0
           ? []
           : await this.assertRestaurantsBelongToOrganization(
-              organizationId,
-              dto.restaurantIds,
-            );
+            organizationId,
+            dto.restaurantIds,
+          );
     } else if (member.allRestaurants) {
       throw new BadRequestException(
         'Provide restaurantIds when changing from global access to restricted access',
@@ -698,8 +802,8 @@ export class OrganizationMembersService {
           data: {
             ...(dto.role !== undefined
               ? {
-                  role: dto.role,
-                }
+                role: dto.role,
+              }
               : {}),
 
             allRestaurants: nextAllRestaurants,
