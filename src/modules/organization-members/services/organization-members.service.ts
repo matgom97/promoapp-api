@@ -720,6 +720,7 @@ export class OrganizationMembersService {
     memberId: string,
     dto: UpdateOrganizationMemberDto,
   ) {
+    // Validación inicial para rechazar solicitudes no autorizadas.
     const actor = await this.assertCanManageMembers(
       actorId,
       organizationId,
@@ -727,19 +728,18 @@ export class OrganizationMembersService {
 
     await this.assertTeamMembersFeature(organizationId);
 
-    const member =
-      await this.prisma.organizationMember.findFirst({
-        where: {
-          id: memberId,
-          organizationId,
-        },
-        select: {
-          id: true,
-          userId: true,
-          role: true,
-          allRestaurants: true,
-        },
-      });
+    const member = await this.prisma.organizationMember.findFirst({
+      where: {
+        id: memberId,
+        organizationId,
+      },
+      select: {
+        id: true,
+        userId: true,
+        role: true,
+        allRestaurants: true,
+      },
+    });
 
     if (!member) {
       throw new NotFoundException(
@@ -747,10 +747,7 @@ export class OrganizationMembersService {
       );
     }
 
-    if (
-      member.role === 'OWNER' &&
-      actor.role !== 'OWNER'
-    ) {
+    if (member.role === 'OWNER' && actor.role !== 'OWNER') {
       throw new ForbiddenException(
         'Only the organization owner can modify the owner membership',
       );
@@ -793,91 +790,201 @@ export class OrganizationMembersService {
       );
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      const updated =
-        await tx.organizationMember.update({
-          where: {
-            id: member.id,
-          },
-          data: {
-            ...(dto.role !== undefined
-              ? {
-                role: dto.role,
-              }
-              : {}),
+    // Calcular el hash antes de abrir la transacción para reducir
+    // el tiempo durante el cual se mantienen bloqueos en la base de datos.
+    const passwordHash =
+      dto.password !== undefined
+        ? await argon2.hash(dto.password, {
+          type: argon2.argon2id,
+        })
+        : undefined;
 
-            allRestaurants: nextAllRestaurants,
-          },
-          select: {
-            id: true,
-            userId: true,
-            organizationId: true,
-            role: true,
-            allRestaurants: true,
-            updatedAt: true,
-          },
-        });
+    return this.prisma.$transaction(
+      async (tx) => {
+        // Revalidar al actor dentro de la transacción.
+        const currentActor =
+          await tx.organizationMember.findUnique({
+            where: {
+              userId_organizationId: {
+                userId: actorId,
+                organizationId,
+              },
+            },
+            select: {
+              id: true,
+              role: true,
+              user: {
+                select: {
+                  status: true,
+                },
+              },
+              organization: {
+                select: {
+                  status: true,
+                },
+              },
+            },
+          });
 
-      if (dto.password !== undefined) {
-        const passwordHash = await argon2.hash(
-          dto.password,
-          {
-            type: argon2.argon2id,
-          },
-        );
+        if (
+          !currentActor ||
+          currentActor.user.status !== 'ACTIVE' ||
+          currentActor.organization.status !== 'ACTIVE'
+        ) {
+          throw new ForbiddenException(
+            'You cannot manage members of this organization',
+          );
+        }
 
-        await tx.user.update({
-          where: {
-            id: member.userId,
-          },
-          data: {
-            passwordHash,
-          },
-        });
-      }
+        if (
+          currentActor.role !== 'OWNER' &&
+          currentActor.role !== 'ADMIN'
+        ) {
+          throw new ForbiddenException(
+            'You do not have permission to manage organization members',
+          );
+        }
 
-      if (nextAllRestaurants) {
-        await tx.restaurantMember.deleteMany({
-          where: {
-            userId: member.userId,
-            restaurant: {
+        // Volver a consultar al miembro objetivo dentro de la transacción.
+        const currentMember =
+          await tx.organizationMember.findFirst({
+            where: {
+              id: memberId,
               organizationId,
             },
-          },
-        });
-      } else if (restaurantIds !== undefined) {
-        await tx.restaurantMember.deleteMany({
-          where: {
-            userId: member.userId,
-            restaurant: {
-              organizationId,
+            select: {
+              id: true,
+              userId: true,
+              role: true,
+              allRestaurants: true,
             },
-          },
-        });
+          });
 
-        await tx.restaurantMember.createMany({
-          data: restaurantIds.map((restaurantId) => ({
-            userId: member.userId,
-            restaurantId,
-            role: dto.role ?? member.role,
-          })),
-        });
-      } else if (dto.role !== undefined) {
-        await tx.restaurantMember.updateMany({
-          where: {
-            userId: member.userId,
-            restaurant: {
-              organizationId,
+        if (!currentMember) {
+          throw new NotFoundException(
+            'Organization member not found',
+          );
+        }
+
+        if (
+          currentMember.role === 'OWNER' &&
+          currentActor.role !== 'OWNER'
+        ) {
+          throw new ForbiddenException(
+            'Only the organization owner can modify the owner membership',
+          );
+        }
+
+        if (dto.role === 'OWNER') {
+          throw new BadRequestException(
+            'Use the ownership transfer process to assign the OWNER role',
+          );
+        }
+
+        // No asumir que el rol ni los permisos del objetivo siguen
+        // siendo los mismos que durante la validación inicial.
+        const effectiveRole =
+          dto.role ?? currentMember.role;
+
+        const updated =
+          await tx.organizationMember.update({
+            where: {
+              id: currentMember.id,
             },
-          },
-          data: {
-            role: dto.role,
-          },
-        });
-      }
+            data: {
+              ...(dto.role !== undefined
+                ? {
+                  role: dto.role,
+                }
+                : {}),
+              allRestaurants: nextAllRestaurants,
+            },
+            select: {
+              id: true,
+              userId: true,
+              organizationId: true,
+              role: true,
+              allRestaurants: true,
+              updatedAt: true,
+            },
+          });
 
-      return updated;
-    });
+        // Cambiar la contraseña afecta a la cuenta global del usuario,
+        // no solamente a esta membresía.
+        if (passwordHash !== undefined) {
+          await tx.user.update({
+            where: {
+              id: currentMember.userId,
+            },
+            data: {
+              passwordHash,
+            },
+          });
+
+          // Revocar los refresh tokens vigentes del usuario.
+          await tx.refreshToken.updateMany({
+            where: {
+              userId: currentMember.userId,
+              revokedAt: null,
+              expiresAt: {
+                gt: new Date(),
+              },
+            },
+            data: {
+              revokedAt: new Date(),
+            },
+          });
+        }
+
+        // Sin acceso global, eliminar las asignaciones anteriores
+        // y conservar solamente los restaurantes autorizados.
+        if (nextAllRestaurants) {
+          await tx.restaurantMember.deleteMany({
+            where: {
+              userId: currentMember.userId,
+              restaurant: {
+                organizationId,
+              },
+            },
+          });
+        } else if (restaurantIds !== undefined) {
+          await tx.restaurantMember.deleteMany({
+            where: {
+              userId: currentMember.userId,
+              restaurant: {
+                organizationId,
+              },
+            },
+          });
+
+          await tx.restaurantMember.createMany({
+            data: restaurantIds.map((restaurantId) => ({
+              userId: currentMember.userId,
+              restaurantId,
+              role: effectiveRole,
+            })),
+          });
+        } else if (dto.role !== undefined) {
+          await tx.restaurantMember.updateMany({
+            where: {
+              userId: currentMember.userId,
+              restaurant: {
+                organizationId,
+              },
+            },
+            data: {
+              role: effectiveRole,
+            },
+          });
+        }
+
+        return updated;
+      },
+      {
+        maxWait: 5000,
+        timeout: 10000,
+      },
+    );
   }
 
   // =====================================================
@@ -910,6 +1017,7 @@ export class OrganizationMembersService {
     organizationId: string,
     memberId: string,
   ) {
+    // Validación inicial.
     await this.assertCanManageMembers(
       actorId,
       organizationId,
@@ -917,18 +1025,17 @@ export class OrganizationMembersService {
 
     await this.assertTeamMembersFeature(organizationId);
 
-    const member =
-      await this.prisma.organizationMember.findFirst({
-        where: {
-          id: memberId,
-          organizationId,
-        },
-        select: {
-          id: true,
-          userId: true,
-          role: true,
-        },
-      });
+    const member = await this.prisma.organizationMember.findFirst({
+      where: {
+        id: memberId,
+        organizationId,
+      },
+      select: {
+        id: true,
+        userId: true,
+        role: true,
+      },
+    });
 
     if (!member) {
       throw new NotFoundException(
@@ -948,22 +1055,106 @@ export class OrganizationMembersService {
       );
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.restaurantMember.deleteMany({
-        where: {
-          userId: member.userId,
-          restaurant: {
-            organizationId,
-          },
-        },
-      });
+    await this.prisma.$transaction(
+      async (tx) => {
+        // Revalidar al actor dentro de la transacción.
+        const currentActor =
+          await tx.organizationMember.findUnique({
+            where: {
+              userId_organizationId: {
+                userId: actorId,
+                organizationId,
+              },
+            },
+            select: {
+              role: true,
+              user: {
+                select: {
+                  status: true,
+                },
+              },
+              organization: {
+                select: {
+                  status: true,
+                },
+              },
+            },
+          });
 
-      await tx.organizationMember.delete({
-        where: {
-          id: member.id,
-        },
-      });
-    });
+        if (
+          !currentActor ||
+          currentActor.user.status !== 'ACTIVE' ||
+          currentActor.organization.status !== 'ACTIVE'
+        ) {
+          throw new ForbiddenException(
+            'You cannot manage members of this organization',
+          );
+        }
+
+        if (
+          currentActor.role !== 'OWNER' &&
+          currentActor.role !== 'ADMIN'
+        ) {
+          throw new ForbiddenException(
+            'You do not have permission to manage organization members',
+          );
+        }
+
+        // Comprobar nuevamente que el objetivo existe y sigue
+        // perteneciendo a la organización.
+        const currentMember =
+          await tx.organizationMember.findFirst({
+            where: {
+              id: memberId,
+              organizationId,
+            },
+            select: {
+              id: true,
+              userId: true,
+              role: true,
+            },
+          });
+
+        if (!currentMember) {
+          throw new NotFoundException(
+            'Organization member not found',
+          );
+        }
+
+        if (currentMember.role === 'OWNER') {
+          throw new ForbiddenException(
+            'The organization owner cannot be removed',
+          );
+        }
+
+        if (currentMember.userId === actorId) {
+          throw new ForbiddenException(
+            'You cannot remove yourself from the organization',
+          );
+        }
+
+        // Eliminar primero las asignaciones de restaurantes.
+        await tx.restaurantMember.deleteMany({
+          where: {
+            userId: currentMember.userId,
+            restaurant: {
+              organizationId,
+            },
+          },
+        });
+
+        // Eliminar exclusivamente la membresía de esta organización.
+        await tx.organizationMember.delete({
+          where: {
+            id: currentMember.id,
+          },
+        });
+      },
+      {
+        maxWait: 5000,
+        timeout: 10000,
+      },
+    );
 
     return {
       message: 'Organization member removed successfully',

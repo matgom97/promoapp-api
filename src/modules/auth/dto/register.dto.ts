@@ -1,58 +1,36 @@
 import {
-    Equals,
+    ArrayMaxSize,
+    ArrayMinSize,
+    IsArray,
     IsBoolean,
     IsEmail,
     IsNumber,
     IsOptional,
     IsString,
-    IsUrl,
+    Max,
     MaxLength,
+    Min,
     MinLength,
+    ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
-export class RegisterDto {
-    // Usuario
-    @IsString()
-    @MinLength(2)
-    @MaxLength(100)
-    name!: string;
-
-    @IsEmail()
-    @MaxLength(191)
-    email!: string;
-
-    @IsString()
-    @MinLength(8)
-    @MaxLength(128)
-    password!: string;
-
-    @IsBoolean()
-    @Equals(true, {
-        message: 'You must accept the terms and conditions',
-    })
-    terms!: boolean;
-
-    // Restaurante
+export class RegisterRestaurantDto {
     @IsString()
     @MinLength(2)
     @MaxLength(150)
-    restaurantName!: string;
+    name!: string;
 
+    @IsOptional()
     @IsString()
-    @MaxLength(50)
-    cuisineCode!: string;
-
-    @IsString()
-    @MinLength(20)
     @MaxLength(500)
-    description!: string;
+    description?: string;
 
     @IsOptional()
     @IsString()
     @MaxLength(30)
     phone?: string;
 
-    // Ubicación
     @IsString()
     @MinLength(3)
     @MaxLength(255)
@@ -69,20 +47,63 @@ export class RegisterDto {
     department?: string;
 
     @IsOptional()
-    @IsNumber()
+    @Type(() => Number)
+    @IsNumber({ maxDecimalPlaces: 7 })
+    @Min(-90)
+    @Max(90)
     latitude?: number;
 
     @IsOptional()
-    @IsNumber()
+    @Type(() => Number)
+    @IsNumber({ maxDecimalPlaces: 7 })
+    @Min(-180)
+    @Max(180)
     longitude?: number;
+}
 
-    // Información pública
+export class RegisterDto {
     @IsString()
+    @MinLength(2)
+    @MaxLength(100)
+    name!: string;
+
+    /**
+     * Nombre comercial de la organización.
+     * Todas las sedes se relacionarán con esta organización.
+     */
+    @IsString()
+    @MinLength(2)
+    @MaxLength(150)
+    restaurantName!: string;
+
+    @IsString()
+    @MinLength(2)
+    @MaxLength(50)
+    cuisineCode!: string;
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(500)
+    description?: string;
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(30)
+    phone?: string;
+
+    @IsOptional()
+    @IsString()
+    @MinLength(2)
+    @MaxLength(50)
+    planCode?: string;
+
+    @IsString()
+    @MinLength(2)
     @MaxLength(20)
     priceRangeCode!: string;
 
     @IsOptional()
-    @IsUrl()
+    @IsString()
     @MaxLength(255)
     website?: string;
 
@@ -92,13 +113,26 @@ export class RegisterDto {
     instagram?: string;
 
     @IsOptional()
-    @IsUrl()
+    @IsString()
     @MaxLength(255)
     facebook?: string;
 
-    // Plan
-    @IsOptional()
+    @IsArray()
+    @ArrayMinSize(1)
+    @ArrayMaxSize(50)
+    @ValidateNested({ each: true })
+    @Type(() => RegisterRestaurantDto)
+    restaurants!: RegisterRestaurantDto[];
+
+    @IsEmail()
+    @MaxLength(191)
+    email!: string;
+
     @IsString()
-    @MaxLength(50)
-    planCode?: string;
+    @MinLength(12)
+    @MaxLength(128)
+    password!: string;
+
+    @IsBoolean()
+    terms!: boolean;
 }

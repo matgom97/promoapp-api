@@ -1,4 +1,5 @@
 import { MembershipRole } from '@prisma/client';
+
 import {
   IsArray,
   IsBoolean,
@@ -10,6 +11,7 @@ import {
   MaxLength,
   ArrayUnique,
   ValidateIf,
+  Matches,
 } from 'class-validator';
 
 export class CreateOrganizationMemberDto {
@@ -28,8 +30,29 @@ export class CreateOrganizationMemberDto {
    */
   @IsOptional()
   @IsString()
-  @MinLength(12)
-  @MaxLength(128)
+  @MinLength(8, {
+    message: 'La contraseña debe tener al menos 8 caracteres.',
+  })
+  @MaxLength(128, {
+    message: 'La contraseña no puede superar los 128 caracteres.',
+  })
+  @Matches(/[A-Z]/, {
+    message: 'La contraseña debe contener al menos una mayúscula.',
+  })
+  @Matches(/[a-z]/, {
+    message: 'La contraseña debe contener al menos una minúscula.',
+  })
+  @Matches(/[0-9]/, {
+    message: 'La contraseña debe contener al menos un número.',
+  })
+  @Matches(/[^A-Za-z0-9\s]/, {
+    message: 'La contraseña debe contener al menos un carácter especial.',
+  })
+  @Matches(/^[A-Za-z0-9!@#$%^&*()_\-+=[\]{};:,.?]+$/, {
+    message:
+      'La contraseña contiene caracteres no permitidos. ' +
+      'Utiliza letras, números y caracteres especiales permitidos.',
+  })
   password?: string;
 
   @IsEnum(MembershipRole)
@@ -38,7 +61,9 @@ export class CreateOrganizationMemberDto {
   @IsBoolean()
   allRestaurants!: boolean;
 
-  @ValidateIf((dto: CreateOrganizationMemberDto) => !dto.allRestaurants)
+  @ValidateIf(
+    (dto: CreateOrganizationMemberDto) => !dto.allRestaurants,
+  )
   @IsArray()
   @ArrayUnique()
   @IsString({ each: true })

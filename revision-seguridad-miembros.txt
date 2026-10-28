@@ -1,0 +1,2854 @@
+==================================================
+REVISION DE SEGURIDAD - PROMOAPP API
+Fecha: Wed Oct 28 15:41:43 -05 2026
+==================================================
+
+========== VERSIONES Y SCRIPTS ==========
+v26.6.0
+12.0.2
+{
+  "name": "promoapp-api",
+  "scripts": {
+    "build": "nest build",
+    "deploy": "nest deploy",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:debug": "nest start --debug --watch",
+    "start:prod": "node dist/main",
+    "lint": "oxlint --type-aware src/ test/",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:cov": "vitest run --coverage",
+    "test:debug": "vitest --inspect-brk --no-file-parallelism",
+    "test:e2e": "vitest run --config ./vitest.config.e2e.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^12.0.1",
+    "@nestjs/core": "^12.0.1",
+    "@prisma/client": "^6.19.0",
+    "class-validator": "^0.15.1"
+  }
+}
+
+========== ORGANIZATION MEMBERS ==========
+
+---------- FILE: src/modules/organization-members/dto/query-organization-members.dto/query-organization-members.dto.ts ----------
+import {
+  IsArray,
+  IsOptional,
+  IsString,
+  IsEnum,
+  IsBoolean,
+  IsInt,
+  Min,
+  Max,
+  ArrayUnique,
+} from 'class-validator';
+
+import { Transform, Type } from 'class-transformer';
+import { MembershipRole } from '@prisma/client';
+
+
+
+export class QueryOrganizationMembersDto {
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (Array.isArray(value)) {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      return value.split(',').filter(Boolean);
+    }
+
+    return value;
+  })
+  @IsArray()
+  @ArrayUnique()
+  @IsString({ each: true })
+  restaurantIds?: string[];
+
+  @IsOptional()
+  @IsEnum(MembershipRole)
+  role?: MembershipRole;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
+  @IsBoolean()
+  allRestaurants?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit = 20;
+}
+---------- FILE: src/modules/organization-members/dto/create-organization-member.dto/create-organization-member.dto.ts ----------
+import { MembershipRole } from '@prisma/client';
+import {
+  IsArray,
+  IsBoolean,
+  IsEmail,
+  IsEnum,
+  IsOptional,
+  IsString,
+  MinLength,
+  MaxLength,
+  ArrayUnique,
+  ValidateIf,
+} from 'class-validator';
+
+export class CreateOrganizationMemberDto {
+  @IsEmail()
+  @MaxLength(191)
+  email!: string;
+
+  @IsString()
+  @MinLength(2)
+  @MaxLength(100)
+  firstName!: string;
+
+  /**
+   * Solo es necesaria cuando se crea un usuario nuevo.
+   * Para usuarios existentes no se modifica la contraseña.
+   */
+  @IsOptional()
+  @IsString()
+  @MinLength(12)
+  @MaxLength(128)
+  password?: string;
+
+  @IsEnum(MembershipRole)
+  role!: MembershipRole;
+
+  @IsBoolean()
+  allRestaurants!: boolean;
+
+  @ValidateIf((dto: CreateOrganizationMemberDto) => !dto.allRestaurants)
+  @IsArray()
+  @ArrayUnique()
+  @IsString({ each: true })
+  restaurantIds?: string[];
+}
+---------- FILE: src/modules/organization-members/dto/assign-restaurants.dto/assign-restaurants.dto.ts ----------
+import {
+  IsArray,
+  IsBoolean,
+  IsString,
+  ArrayUnique,
+  ValidateIf,
+} from 'class-validator';
+
+export class AssignRestaurantsDto {
+  @IsBoolean()
+  allRestaurants!: boolean;
+
+  @ValidateIf((dto: AssignRestaurantsDto) => !dto.allRestaurants)
+  @IsArray()
+  @ArrayUnique()
+  @IsString({ each: true })
+  restaurantIds?: string[];
+}
+---------- FILE: src/modules/organization-members/dto/update-organization-member.dto/update-organization-member.dto.ts ----------
+import { MembershipRole } from '@prisma/client';
+import {
+  IsArray,
+  IsBoolean,
+  IsEnum,
+  IsOptional,
+  IsString,
+  ArrayUnique,
+} from 'class-validator';
+
+
+
+export class UpdateOrganizationMemberDto {
+  @IsOptional()
+  @IsEnum(MembershipRole)
+  role?: MembershipRole;
+
+  @IsOptional()
+  @IsBoolean()
+  allRestaurants?: boolean;
+
+  // Contraseña: Se permite que sea opcional, ya que no siempre se requiere actualizar la contraseña al modificar un miembro de la organización.
+  @IsOptional()
+  @IsString()
+  password?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsString({ each: true })
+  restaurantIds?: string[];
+}
+---------- FILE: src/modules/organization-members/organization-members.module.ts ----------
+import { Module } from '@nestjs/common';
+
+import { OrganizationMembersController } from './controllers/organization-members.controller.js';
+import { OrganizationMembersService } from './services/organization-members.service.js'; 
+import { PlanAccessModule } from '../plan-access/plan-access.module.js';
+@Module({
+  controllers: [OrganizationMembersController],
+  providers: [OrganizationMembersService],
+  exports: [OrganizationMembersService],
+  imports: [PlanAccessModule],
+})
+export class OrganizationMembersModule {}
+---------- FILE: src/modules/organization-members/controllers/organization-members.controller.ts ----------
+import {
+    Controller,
+    Get,
+    Post,
+    Patch,
+    Delete,
+    Param,
+    Query,
+    Body,
+    UseGuards,
+    Req,
+    UnauthorizedException,
+    Version,
+} from '@nestjs/common';
+
+import type { Request } from 'express';
+
+import { OrganizationMembersService } from '../services/organization-members.service.js';
+
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth/jwt-auth.guard.js';
+
+import { QueryOrganizationMembersDto } from '../dto/query-organization-members.dto/query-organization-members.dto.js';
+import { CreateOrganizationMemberDto } from '../dto/create-organization-member.dto/create-organization-member.dto.js';
+import { UpdateOrganizationMemberDto } from '../dto/update-organization-member.dto/update-organization-member.dto.js';
+import { AssignRestaurantsDto } from '../dto/assign-restaurants.dto/assign-restaurants.dto.js';
+
+interface AuthenticatedUser {
+    userId: string;
+    email: string;
+}
+
+interface AuthenticatedRequest extends Request {
+    user: AuthenticatedUser;
+}
+
+@Controller({
+    path: 'organizations/:organizationId/members',
+    version: '1',
+})
+
+@UseGuards(JwtAuthGuard)
+
+export class OrganizationMembersController {
+    constructor(
+        private readonly organizationMembersService: OrganizationMembersService,
+    ) { }
+
+    /**
+     * Obtiene el identificador del usuario autenticado.
+     */
+    private getAuthenticatedUserId(
+        req: AuthenticatedRequest,
+    ): string {
+        const userId = req.user?.userId;
+
+        if (!userId) {
+            throw new UnauthorizedException(
+                'Authenticated user ID not found',
+            );
+        }
+
+        return userId;
+    }
+
+    /**
+     * GET /api/organizations/:organizationId/members
+     * Lista los miembros de una organización.
+     */
+    @Get()
+    findAll(
+        @Req() req: AuthenticatedRequest,
+        @Param('organizationId') organizationId: string,
+        @Query() query: QueryOrganizationMembersDto,
+    ) {
+        return this.organizationMembersService.findAll(
+            this.getAuthenticatedUserId(req),
+            organizationId,
+            query,
+        );
+    }
+
+    /**
+     * GET /api/organizations/:organizationId/members/:memberId
+     * Consulta un miembro.
+     */
+    @Get(':memberId')
+    findOne(
+        @Req() req: AuthenticatedRequest,
+        @Param('organizationId') organizationId: string,
+        @Param('memberId') memberId: string,
+    ) {
+        return this.organizationMembersService.findOne(
+            this.getAuthenticatedUserId(req),
+            organizationId,
+            memberId,
+        );
+    }
+
+    /**
+     * POST /api/organizations/:organizationId/members
+     * Incorpora un usuario existente.
+     */
+    @Post()
+    create(
+        @Req() req: AuthenticatedRequest,
+        @Param('organizationId') organizationId: string,
+        @Body() dto: CreateOrganizationMemberDto,
+    ) {
+        return this.organizationMembersService.create(
+            this.getAuthenticatedUserId(req),
+            organizationId,
+            dto,
+        );
+    }
+
+    /**
+     * PATCH /api/organizations/:organizationId/members/:memberId
+     * Actualiza el rol o los accesos.
+     */
+    @Patch(':memberId')
+    update(
+        @Req() req: AuthenticatedRequest,
+        @Param('organizationId') organizationId: string,
+        @Param('memberId') memberId: string,
+        @Body() dto: UpdateOrganizationMemberDto,
+    ) {
+        return this.organizationMembersService.update(
+            this.getAuthenticatedUserId(req),
+            organizationId,
+            memberId,
+            dto,
+        );
+    }
+
+    /**
+     * PATCH /api/organizations/:organizationId/members/:memberId/restaurants
+     * Actualiza los restaurantes asignados.
+     */
+    @Patch(':memberId/restaurants')
+    assignRestaurants(
+        @Req() req: AuthenticatedRequest,
+        @Param('organizationId') organizationId: string,
+        @Param('memberId') memberId: string,
+        @Body() dto: AssignRestaurantsDto,
+    ) {
+        return this.organizationMembersService.assignRestaurants(
+            this.getAuthenticatedUserId(req),
+            organizationId,
+            memberId,
+            dto,
+        );
+    }
+
+    /**
+     * DELETE /api/organizations/:organizationId/members/:memberId
+     * Revoca la membresía.
+     */
+    @Delete(':memberId')
+    remove(
+        @Req() req: AuthenticatedRequest,
+        @Param('organizationId') organizationId: string,
+        @Param('memberId') memberId: string,
+    ) {
+        return this.organizationMembersService.remove(
+            this.getAuthenticatedUserId(req),
+            organizationId,
+            memberId,
+        );
+    }
+}
+---------- FILE: src/modules/organization-members/services/organization-members.service.ts ----------
+import {
+  Injectable,
+  ForbiddenException,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
+
+import * as argon2 from 'argon2';
+
+import { Prisma, type PrismaClient } from '@prisma/client';
+
+import { PrismaService } from '../../../database/prisma/prisma.service.js';
+
+import {
+  QueryOrganizationMembersDto,
+} from '../dto/query-organization-members.dto/query-organization-members.dto.js';
+
+import {
+  CreateOrganizationMemberDto,
+} from '../dto/create-organization-member.dto/create-organization-member.dto.js';
+
+import {
+  UpdateOrganizationMemberDto,
+} from '../dto/update-organization-member.dto/update-organization-member.dto.js';
+
+import {
+  AssignRestaurantsDto,
+} from '../dto/assign-restaurants.dto/assign-restaurants.dto.js';
+
+import {
+  PlanLimitsService,
+} from '../../plan-access/application/services/plan-limits.service.js';
+
+import {
+  FeatureAccessService,
+} from '../../plan-access/application/services/feature-access.service.js';
+
+@Injectable()
+export class OrganizationMembersService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly planLimitsService: PlanLimitsService,
+    private readonly featureAccessService: FeatureAccessService,
+  ) { }
+
+  // =====================================================
+  // AUTORIZACIÓN
+  // =====================================================
+
+  private async assertCanManageMembers(
+    actorId: string,
+    organizationId: string,
+  ) {
+    const membership =
+      await this.prisma.organizationMember.findUnique({
+        where: {
+          userId_organizationId: {
+            userId: actorId,
+            organizationId,
+          },
+        },
+        select: {
+          id: true,
+          role: true,
+          user: {
+            select: {
+              status: true,
+            },
+          },
+          organization: {
+            select: {
+              status: true,
+            },
+          },
+        },
+      });
+
+    if (
+      !membership ||
+      membership.user.status !== 'ACTIVE' ||
+      membership.organization.status !== 'ACTIVE'
+    ) {
+      throw new ForbiddenException(
+        'You cannot manage members of this organization',
+      );
+    }
+
+    if (
+      membership.role !== 'OWNER' &&
+      membership.role !== 'ADMIN'
+    ) {
+      throw new ForbiddenException(
+        'You do not have permission to manage organization members',
+      );
+    }
+
+    return membership;
+  }
+
+  // =====================================================
+  // VALIDACIÓN DE FUNCIONALIDAD DEL PLAN
+  // =====================================================
+
+  private async assertTeamMembersFeature(
+    organizationId: string,
+  ): Promise<void> {
+    await this.featureAccessService.assertFeatureEnabled(
+      organizationId,
+      'TEAM_MEMBERS',
+    );
+  }
+
+  // =====================================================
+  // VALIDACIÓN DE RESTAURANTES
+  // =====================================================
+
+  private async assertRestaurantsBelongToOrganization(
+    organizationId: string,
+    restaurantIds: string[],
+  ): Promise<string[]> {
+    const uniqueIds = [...new Set(restaurantIds)];
+
+    if (uniqueIds.length === 0) {
+      throw new BadRequestException(
+        'At least one restaurant must be selected',
+      );
+    }
+
+    const restaurants =
+      await this.prisma.restaurant.findMany({
+        where: {
+          id: {
+            in: uniqueIds,
+          },
+          organizationId,
+          status: 'ACTIVE',
+        },
+        select: {
+          id: true,
+        },
+      });
+
+    if (restaurants.length !== uniqueIds.length) {
+      throw new BadRequestException(
+        'One or more restaurants are invalid, inactive, or belong to another organization',
+      );
+    }
+
+    return uniqueIds;
+  }
+
+  // =====================================================
+  // LISTAR MIEMBROS
+  // =====================================================
+
+  async findAll(
+    actorId: string,
+    organizationId: string,
+    query: QueryOrganizationMembersDto,
+  ) {
+    await this.assertCanManageMembers(
+      actorId,
+      organizationId,
+    );
+
+    const {
+      restaurantIds,
+      role,
+      allRestaurants,
+      page = 1,
+      limit = 20,
+    } = query;
+
+    let assignedUserIds: string[] = [];
+
+    if (restaurantIds?.length) {
+      const validRestaurantIds =
+        await this.assertRestaurantsBelongToOrganization(
+          organizationId,
+          restaurantIds,
+        );
+
+      const assignments =
+        await this.prisma.restaurantMember.findMany({
+          where: {
+            restaurantId: {
+              in: validRestaurantIds,
+            },
+            restaurant: {
+              organizationId,
+            },
+          },
+          select: {
+            userId: true,
+          },
+          distinct: ['userId'],
+        });
+
+      assignedUserIds = assignments.map(
+        (assignment) => assignment.userId,
+      );
+    }
+
+    const where: Prisma.OrganizationMemberWhereInput = {
+      organizationId,
+
+      ...(role !== undefined
+        ? { role }
+        : {}),
+
+      ...(allRestaurants !== undefined
+        ? { allRestaurants }
+        : {}),
+
+      ...(restaurantIds?.length
+        ? {
+          OR: [
+            {
+              allRestaurants: true,
+            },
+            {
+              userId: {
+                in: assignedUserIds,
+              },
+            },
+          ],
+        }
+        : {}),
+    };
+
+    const [total, members] =
+      await this.prisma.$transaction([
+        this.prisma.organizationMember.count({
+          where,
+        }),
+
+        this.prisma.organizationMember.findMany({
+          where,
+          skip: (page - 1) * limit,
+          take: limit,
+          orderBy: {
+            createdAt: 'desc',
+          },
+          select: {
+            id: true,
+            userId: true,
+            role: true,
+            allRestaurants: true,
+            createdAt: true,
+            updatedAt: true,
+
+            user: {
+              select: {
+                id: true,
+                email: true,
+                firstName: true,
+                status: true,
+              },
+            },
+          },
+        }),
+      ]);
+
+    const memberIds = members.map(
+      (member) => member.userId,
+    );
+
+    const restaurantMemberships =
+      memberIds.length > 0
+        ? await this.prisma.restaurantMember.findMany({
+          where: {
+            userId: {
+              in: memberIds,
+            },
+            restaurant: {
+              organizationId,
+            },
+          },
+          select: {
+            userId: true,
+            restaurantId: true,
+            role: true,
+            roleId: true,
+
+            restaurant: {
+              select: {
+                name: true,
+                status: true,
+              },
+            },
+          },
+        })
+        : [];
+
+    const assignmentsByUser = new Map<
+      string,
+      typeof restaurantMemberships
+    >();
+
+    for (const assignment of restaurantMemberships) {
+      const current =
+        assignmentsByUser.get(assignment.userId) ?? [];
+
+      current.push(assignment);
+
+      assignmentsByUser.set(
+        assignment.userId,
+        current,
+      );
+    }
+
+    const roles = await this.prisma.role.findMany({
+      select: {
+        code: true,
+        name: true,
+      },
+    });
+
+    const roleNames = new Map(
+      roles.map((role) => [role.code, role.name]),
+    );
+
+    return {
+      data: members.map((member) => ({
+        id: member.id,
+        userId: member.userId,
+        role: member.role,
+        roleName: roleNames.get(member.role) ?? member.role,
+        allRestaurants: member.allRestaurants,
+        createdAt: member.createdAt,
+        updatedAt: member.updatedAt,
+
+        user: member.user,
+
+        restaurants: member.allRestaurants
+          ? []
+          : (
+            assignmentsByUser.get(member.userId) ?? []
+          ).map((assignment) => ({
+            id: assignment.restaurantId,
+            name: assignment.restaurant.name,
+            status: assignment.restaurant.status,
+            role: assignment.role,
+            roleId: assignment.roleId,
+          })),
+      })),
+
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  // =====================================================
+  // CONSULTAR UN MIEMBRO
+  // =====================================================
+
+  async findOne(
+    actorId: string,
+    organizationId: string,
+    memberId: string,
+  ) {
+    await this.assertCanManageMembers(
+      actorId,
+      organizationId,
+    );
+
+    const member =
+      await this.prisma.organizationMember.findFirst({
+        where: {
+          id: memberId,
+          organizationId,
+        },
+        select: {
+          id: true,
+          userId: true,
+          role: true,
+          allRestaurants: true,
+          createdAt: true,
+          updatedAt: true,
+
+          user: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              status: true,
+            },
+          },
+        },
+      });
+
+    if (!member) {
+      throw new NotFoundException(
+        'Organization member not found',
+      );
+    }
+
+    const assignments =
+      await this.prisma.restaurantMember.findMany({
+        where: {
+          userId: member.userId,
+          restaurant: {
+            organizationId,
+          },
+        },
+        select: {
+          id: true,
+          restaurantId: true,
+          role: true,
+          roleId: true,
+
+          restaurant: {
+            select: {
+              name: true,
+              status: true,
+            },
+          },
+        },
+      });
+
+    return {
+      ...member,
+
+      restaurants: member.allRestaurants
+        ? []
+        : assignments.map((assignment) => ({
+          id: assignment.restaurantId,
+          name: assignment.restaurant.name,
+          status: assignment.restaurant.status,
+          role: assignment.role,
+          roleId: assignment.roleId,
+        })),
+    };
+  }
+
+  // =====================================================
+  // INCORPORAR UN USUARIO EXISTENTE
+  // =====================================================
+
+  async create(
+    actorId: string,
+    organizationId: string,
+    dto: CreateOrganizationMemberDto,
+  ) {
+    await this.assertCanManageMembers(
+      actorId,
+      organizationId,
+    );
+
+    await this.assertTeamMembersFeature(organizationId);
+
+    if (dto.role === 'OWNER') {
+      throw new BadRequestException(
+        'Use the ownership transfer process to assign the OWNER role',
+      );
+    }
+
+    if (
+      !dto.allRestaurants &&
+      (!dto.restaurantIds || dto.restaurantIds.length === 0)
+    ) {
+      throw new BadRequestException(
+        'Select at least one restaurant or enable access to all restaurants',
+      );
+    }
+
+    const email = dto.email.trim().toLowerCase();
+
+    const restaurantIds = dto.allRestaurants
+      ? []
+      : await this.assertRestaurantsBelongToOrganization(
+        organizationId,
+        dto.restaurantIds ?? [],
+      );
+
+    const existingUser = await this.prisma.user.findUnique({
+      where: {
+        email,
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+
+    if (
+      existingUser &&
+      existingUser.status !== 'ACTIVE'
+    ) {
+      throw new BadRequestException(
+        'This user account is not active',
+      );
+    }
+
+    if (!existingUser && !dto.password) {
+      throw new BadRequestException(
+        'A password is required when creating a new user',
+      );
+    }
+
+    const passwordHash = existingUser
+      ? undefined
+      : await argon2.hash(dto.password!, {
+        type: argon2.argon2id,
+      });
+
+    try {
+      return await this.prisma.$transaction(
+        async (tx) => {
+          /*
+           * Serializa las operaciones que intenten modificar
+           * los miembros de esta misma organización, siempre
+           * que utilicen este mismo protocolo de bloqueo.
+           */
+          const organizations = await tx.$queryRaw<
+            Array<{ id: string }>
+          >`
+          SELECT id
+          FROM organizations
+          WHERE id = ${organizationId}
+          FOR UPDATE
+        `;
+
+          if (organizations.length === 0) {
+            throw new NotFoundException(
+              'Organization not found',
+            );
+          }
+
+          /*
+           * Volver a comprobar la membresía del actor dentro
+           * de la transacción evita depender exclusivamente
+           * de la validación previa.
+           */
+          const actorMembership =
+            await tx.organizationMember.findUnique({
+              where: {
+                userId_organizationId: {
+                  userId: actorId,
+                  organizationId,
+                },
+              },
+              select: {
+                role: true,
+                user: {
+                  select: {
+                    status: true,
+                  },
+                },
+                organization: {
+                  select: {
+                    status: true,
+                  },
+                },
+              },
+            });
+
+          if (
+            !actorMembership ||
+            actorMembership.user.status !== 'ACTIVE' ||
+            actorMembership.organization.status !== 'ACTIVE' ||
+            !['OWNER', 'ADMIN'].includes(
+              actorMembership.role,
+            )
+          ) {
+            throw new ForbiddenException(
+              'You cannot manage members of this organization',
+            );
+          }
+
+          /*
+           * Comprobar el plan y el cupo dentro de la misma
+           * transacción que crea la membresía.
+           */
+          const plan =
+            await this.planLimitsService.getOrganizationPlan(
+              organizationId,
+            );
+
+          const currentUsers =
+            await tx.organizationMember.count({
+              where: {
+                organizationId,
+              },
+            });
+
+          if (
+            plan.limits.maxUsers !== null &&
+            currentUsers >= plan.limits.maxUsers
+          ) {
+            throw new ForbiddenException({
+              code: 'PLAN_LIMIT_REACHED',
+              message:
+                'La organización alcanzó el límite de usuarios de su plan.',
+              limit: 'maxUsers',
+              maximum: plan.limits.maxUsers,
+              current: currentUsers,
+              plan: plan.planCode,
+            });
+          }
+
+          /*
+           * Resolver el usuario dentro de la transacción.
+           * La restricción única de email sigue siendo la
+           * garantía definitiva contra duplicados.
+           */
+          const user = existingUser
+            ? await tx.user.findUnique({
+              where: {
+                id: existingUser.id,
+              },
+              select: {
+                id: true,
+                status: true,
+              },
+            })
+            : await tx.user.create({
+              data: {
+                email,
+                firstName: dto.firstName.trim(),
+                passwordHash: passwordHash!,
+                status: 'ACTIVE',
+              },
+              select: {
+                id: true,
+                status: true,
+              },
+            });
+
+          if (!user || user.status !== 'ACTIVE') {
+            throw new BadRequestException(
+              'This user account is not active',
+            );
+          }
+
+          const existingMembership =
+            await tx.organizationMember.findUnique({
+              where: {
+                userId_organizationId: {
+                  userId: user.id,
+                  organizationId,
+                },
+              },
+              select: {
+                id: true,
+              },
+            });
+
+          if (existingMembership) {
+            throw new ConflictException(
+              'This user already belongs to the organization',
+            );
+          }
+
+          const member =
+            await tx.organizationMember.create({
+              data: {
+                userId: user.id,
+                organizationId,
+                role: dto.role,
+                allRestaurants: dto.allRestaurants,
+              },
+              select: {
+                id: true,
+                userId: true,
+                organizationId: true,
+                role: true,
+                allRestaurants: true,
+                createdAt: true,
+              },
+            });
+
+          if (restaurantIds.length > 0) {
+            await tx.restaurantMember.createMany({
+              data: restaurantIds.map((restaurantId) => ({
+                userId: user.id,
+                restaurantId,
+                role: dto.role,
+              })),
+            });
+          }
+
+          return member;
+        },
+        {
+          maxWait: 5000,
+          timeout: 10000,
+        },
+      );
+    } catch (error) {
+      /*
+       * Traducir conflictos de restricciones únicas a una
+       * respuesta HTTP consistente.
+       */
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'This user or membership already exists',
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  // =====================================================
+  // ACTUALIZAR ROL Y ACCESOS
+  // =====================================================
+
+  async update(
+    actorId: string,
+    organizationId: string,
+    memberId: string,
+    dto: UpdateOrganizationMemberDto,
+  ) {
+    const actor = await this.assertCanManageMembers(
+      actorId,
+      organizationId,
+    );
+
+    await this.assertTeamMembersFeature(organizationId);
+
+    const member =
+      await this.prisma.organizationMember.findFirst({
+        where: {
+          id: memberId,
+          organizationId,
+        },
+        select: {
+          id: true,
+          userId: true,
+          role: true,
+          allRestaurants: true,
+        },
+      });
+
+    if (!member) {
+      throw new NotFoundException(
+        'Organization member not found',
+      );
+    }
+
+    if (
+      member.role === 'OWNER' &&
+      actor.role !== 'OWNER'
+    ) {
+      throw new ForbiddenException(
+        'Only the organization owner can modify the owner membership',
+      );
+    }
+
+    if (dto.role === 'OWNER') {
+      throw new BadRequestException(
+        'Use the ownership transfer process to assign the OWNER role',
+      );
+    }
+
+    const nextAllRestaurants =
+      dto.allRestaurants ?? member.allRestaurants;
+
+    let restaurantIds: string[] | undefined;
+
+    if (nextAllRestaurants) {
+      restaurantIds = [];
+    } else if (dto.restaurantIds !== undefined) {
+      restaurantIds =
+        dto.restaurantIds.length === 0
+          ? []
+          : await this.assertRestaurantsBelongToOrganization(
+            organizationId,
+            dto.restaurantIds,
+          );
+    } else if (member.allRestaurants) {
+      throw new BadRequestException(
+        'Provide restaurantIds when changing from global access to restricted access',
+      );
+    }
+
+    if (
+      !nextAllRestaurants &&
+      restaurantIds !== undefined &&
+      restaurantIds.length === 0
+    ) {
+      throw new BadRequestException(
+        'At least one restaurant must be assigned when global access is disabled',
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated =
+        await tx.organizationMember.update({
+          where: {
+            id: member.id,
+          },
+          data: {
+            ...(dto.role !== undefined
+              ? {
+                role: dto.role,
+              }
+              : {}),
+
+            allRestaurants: nextAllRestaurants,
+          },
+          select: {
+            id: true,
+            userId: true,
+            organizationId: true,
+            role: true,
+            allRestaurants: true,
+            updatedAt: true,
+          },
+        });
+
+      if (dto.password !== undefined) {
+        const passwordHash = await argon2.hash(
+          dto.password,
+          {
+            type: argon2.argon2id,
+          },
+        );
+
+        await tx.user.update({
+          where: {
+            id: member.userId,
+          },
+          data: {
+            passwordHash,
+          },
+        });
+      }
+
+      if (nextAllRestaurants) {
+        await tx.restaurantMember.deleteMany({
+          where: {
+            userId: member.userId,
+            restaurant: {
+              organizationId,
+            },
+          },
+        });
+      } else if (restaurantIds !== undefined) {
+        await tx.restaurantMember.deleteMany({
+          where: {
+            userId: member.userId,
+            restaurant: {
+              organizationId,
+            },
+          },
+        });
+
+        await tx.restaurantMember.createMany({
+          data: restaurantIds.map((restaurantId) => ({
+            userId: member.userId,
+            restaurantId,
+            role: dto.role ?? member.role,
+          })),
+        });
+      } else if (dto.role !== undefined) {
+        await tx.restaurantMember.updateMany({
+          where: {
+            userId: member.userId,
+            restaurant: {
+              organizationId,
+            },
+          },
+          data: {
+            role: dto.role,
+          },
+        });
+      }
+
+      return updated;
+    });
+  }
+
+  // =====================================================
+  // ASIGNAR RESTAURANTES
+  // =====================================================
+
+  async assignRestaurants(
+    actorId: string,
+    organizationId: string,
+    memberId: string,
+    dto: AssignRestaurantsDto,
+  ) {
+    return this.update(
+      actorId,
+      organizationId,
+      memberId,
+      {
+        allRestaurants: dto.allRestaurants,
+        restaurantIds: dto.restaurantIds,
+      },
+    );
+  }
+
+  // =====================================================
+  // REVOCAR MEMBRESÍA
+  // =====================================================
+
+  async remove(
+    actorId: string,
+    organizationId: string,
+    memberId: string,
+  ) {
+    await this.assertCanManageMembers(
+      actorId,
+      organizationId,
+    );
+
+    await this.assertTeamMembersFeature(organizationId);
+
+    const member =
+      await this.prisma.organizationMember.findFirst({
+        where: {
+          id: memberId,
+          organizationId,
+        },
+        select: {
+          id: true,
+          userId: true,
+          role: true,
+        },
+      });
+
+    if (!member) {
+      throw new NotFoundException(
+        'Organization member not found',
+      );
+    }
+
+    if (member.role === 'OWNER') {
+      throw new ForbiddenException(
+        'The organization owner cannot be removed',
+      );
+    }
+
+    if (member.userId === actorId) {
+      throw new ForbiddenException(
+        'You cannot remove yourself from the organization',
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.restaurantMember.deleteMany({
+        where: {
+          userId: member.userId,
+          restaurant: {
+            organizationId,
+          },
+        },
+      });
+
+      await tx.organizationMember.delete({
+        where: {
+          id: member.id,
+        },
+      });
+    });
+
+    return {
+      message: 'Organization member removed successfully',
+    };
+  }
+}
+========== AUTHORIZATION ==========
+
+---------- FILE: src/common/authorization/decorators/require-permissions.decorator.ts ----------
+import { SetMetadata } from '@nestjs/common';
+import type { PermissionCode } from '../constants/permissions.constant.js';
+
+export const REQUIRED_PERMISSIONS_KEY = 'required_permissions';
+
+export const RequirePermissions = (
+  ...permissions: PermissionCode[]
+) => SetMetadata(REQUIRED_PERMISSIONS_KEY, permissions);
+---------- FILE: src/common/authorization/constants/permissions.constant.ts ----------
+export const PERMISSIONS = {
+    DASHBOARD_VIEW: 'dashboard.view',
+
+    PROMOTIONS_VIEW: 'promotions.view',
+    PROMOTIONS_CREATE: 'promotions.create',
+    PROMOTIONS_UPDATE: 'promotions.update',
+    PROMOTIONS_DELETE: 'promotions.delete',
+
+    REDEMPTIONS_VIEW: 'redemptions.view',
+    REDEMPTIONS_VALIDATE: 'redemptions.validate',
+
+    CUSTOMERS_VIEW: 'customers.view',
+    CUSTOMERS_EXPORT: 'customers.export',
+
+    ANALYTICS_VIEW: 'analytics.view',
+
+    TEAM_VIEW: 'team.view',
+    TEAM_MANAGE: 'team.manage',
+
+    ROLES_MANAGE: 'roles.manage',
+    ROLES_VIEW: 'roles.view',
+
+    SETTINGS_VIEW: 'settings.view',
+    SETTINGS_MANAGE: 'settings.manage',
+
+    BILLING_VIEW: 'billing.view',
+    BILLING_MANAGE: 'billing.manage',
+} as const;
+
+export type PermissionCode =
+    (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
+---------- FILE: src/common/authorization/constants/role-permissions.constant.ts ----------
+import { PERMISSIONS } from './permissions.constant.js';
+
+export const SYSTEM_ROLE_PERMISSIONS = {
+    OWNER: Object.values(PERMISSIONS),
+
+    ADMIN: [
+        PERMISSIONS.DASHBOARD_VIEW,
+
+        PERMISSIONS.PROMOTIONS_VIEW,
+        PERMISSIONS.PROMOTIONS_CREATE,
+        PERMISSIONS.PROMOTIONS_UPDATE,
+        PERMISSIONS.PROMOTIONS_DELETE,
+
+        PERMISSIONS.REDEMPTIONS_VIEW,
+        PERMISSIONS.REDEMPTIONS_VALIDATE,
+
+        PERMISSIONS.CUSTOMERS_VIEW,
+        PERMISSIONS.CUSTOMERS_EXPORT,
+
+        PERMISSIONS.ANALYTICS_VIEW,
+
+        PERMISSIONS.TEAM_VIEW,
+        PERMISSIONS.TEAM_MANAGE,
+
+        PERMISSIONS.SETTINGS_VIEW,
+    ],
+
+    MANAGER: [
+        PERMISSIONS.DASHBOARD_VIEW,
+
+        PERMISSIONS.PROMOTIONS_VIEW,
+        PERMISSIONS.PROMOTIONS_CREATE,
+        PERMISSIONS.PROMOTIONS_UPDATE,
+
+        PERMISSIONS.REDEMPTIONS_VIEW,
+        PERMISSIONS.REDEMPTIONS_VALIDATE,
+
+        PERMISSIONS.CUSTOMERS_VIEW,
+
+        PERMISSIONS.ANALYTICS_VIEW,
+
+        PERMISSIONS.TEAM_VIEW,
+    ],
+
+    STAFF: [
+        PERMISSIONS.DASHBOARD_VIEW,
+
+        PERMISSIONS.PROMOTIONS_VIEW,
+
+        PERMISSIONS.REDEMPTIONS_VIEW,
+        PERMISSIONS.REDEMPTIONS_VALIDATE,
+    ],
+} as const;
+---------- FILE: src/common/authorization/authorization.module.ts ----------
+import { Module } from '@nestjs/common';
+
+import { PrismaModule } from '../../database/prisma/prisma.module.js';
+
+import { PermissionsGuard } from './guards/permissions.guard.js';
+import { WorkspaceContextGuard } from './guards/workspace-context.guard.js';
+
+import { WorkspaceAuthorizationService } from './services/workspace-authorization.service.js';
+import { PermissionResolverService } from './services/permission-resolver.service.js';
+
+@Module({
+  imports: [PrismaModule],
+  providers: [
+    PermissionsGuard,
+    WorkspaceContextGuard,
+    WorkspaceAuthorizationService,
+    PermissionResolverService,
+  ],
+  exports: [
+    PermissionsGuard,
+    WorkspaceContextGuard,
+    WorkspaceAuthorizationService,
+    PermissionResolverService,
+  ],
+})
+export class AuthorizationModule {}
+---------- FILE: src/common/authorization/services/permission-resolver.service.ts ----------
+import {
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
+
+import { PrismaService } from '../../../database/prisma/prisma.service.js';
+
+import {
+  SYSTEM_ROLE_PERMISSIONS,
+} from '../constants/role-permissions.constant.js';
+
+type SystemRole = keyof typeof SYSTEM_ROLE_PERMISSIONS;
+
+@Injectable()
+export class PermissionResolverService {
+  constructor(
+    private readonly prisma: PrismaService,
+  ) {}
+
+  /**
+   * Resuelve los permisos de una membresía de restaurante.
+   *
+   * Si existe un rol personalizado, utiliza exclusivamente
+   * los permisos de ese rol.
+   *
+   * Si no existe un rol personalizado, utiliza los permisos
+   * definidos para el rol del sistema.
+   */
+  async resolveRestaurantPermissions(
+    restaurantMemberId: string,
+    role: string,
+    customRoleId: string | null,
+  ): Promise<string[]> {
+    if (customRoleId) {
+      const customRole = await this.prisma.role.findFirst({
+        where: {
+          id: customRoleId,
+          isActive: true,
+          restaurant: {
+            memberships: {
+              some: {
+                id: restaurantMemberId,
+              },
+            },
+          },
+        },
+        select: {
+          permissions: {
+            where: {
+              permission: {
+                isActive: true,
+              },
+            },
+            select: {
+              permission: {
+                select: {
+                  code: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!customRole) {
+        throw new ForbiddenException({
+          code: 'INVALID_CUSTOM_ROLE',
+          message: 'The assigned custom role is invalid or inactive.',
+        });
+      }
+
+      return [
+        ...new Set(
+          customRole.permissions.map(
+            ({ permission }) => permission.code,
+          ),
+        ),
+      ];
+    }
+
+    return this.resolveSystemRolePermissions(role);
+  }
+
+  /**
+   * Resuelve los permisos de un rol del sistema.
+   *
+   * Los roles desconocidos no reciben permisos.
+   */
+  resolveSystemRolePermissions(
+    role: string,
+  ): string[] {
+    if (
+      !Object.prototype.hasOwnProperty.call(
+        SYSTEM_ROLE_PERMISSIONS,
+        role,
+      )
+    ) {
+      throw new ForbiddenException({
+        code: 'INVALID_SYSTEM_ROLE',
+        message: 'The assigned system role is invalid.',
+      });
+    }
+
+    const permissions =
+      SYSTEM_ROLE_PERMISSIONS[role as SystemRole];
+
+    return [...new Set(permissions)];
+  }
+}
+---------- FILE: src/common/authorization/services/workspace-authorization.service.ts ----------
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+
+import { PrismaService } from '../../../database/prisma/prisma.service.js';
+
+import {
+  SYSTEM_ROLE_PERMISSIONS,
+} from '../constants/role-permissions.constant.js';
+
+export interface WorkspaceAccessContext {
+  restaurantId: string;
+  organizationId: string;
+  permissions: string[];
+}
+
+@Injectable()
+export class WorkspaceAuthorizationService {
+  constructor(
+    private readonly prisma: PrismaService,
+  ) {}
+
+  /**
+   * Devuelve el contexto autorizado del workspace.
+   *
+   * La organización se obtiene del restaurante validado,
+   * nunca de un identificador proporcionado por el cliente.
+   */
+  async getWorkspaceAccess(
+    userId: string,
+    restaurantId: string,
+  ): Promise<WorkspaceAccessContext> {
+    const now = new Date();
+
+    // 1. Validar restaurante y organización.
+    const restaurant = await this.prisma.restaurant.findFirst({
+      where: {
+        id: restaurantId,
+        status: 'ACTIVE',
+        organization: {
+          status: 'ACTIVE',
+        },
+      },
+      select: {
+        id: true,
+        organizationId: true,
+      },
+    });
+
+    if (!restaurant) {
+      throw new NotFoundException(
+        'Active restaurant not found',
+      );
+    }
+
+    // 2. Validar usuario.
+    const user = await this.prisma.user.findUnique({
+      where: {
+        id: userId,
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+
+    if (!user || user.status !== 'ACTIVE') {
+      throw new UnauthorizedException(
+        'User is not authenticated',
+      );
+    }
+
+    // 3. Validar membresía de organización.
+    const organizationMembership =
+      await this.prisma.organizationMember.findFirst({
+        where: {
+          userId,
+          organizationId: restaurant.organizationId,
+        },
+        select: {
+          id: true,
+          role: true,
+          allRestaurants: true,
+        },
+      });
+
+    if (!organizationMembership) {
+      throw new NotFoundException(
+        'Active workspace membership not found',
+      );
+    }
+
+    // 4. Buscar membresía del restaurante.
+    const restaurantMembership =
+      await this.prisma.restaurantMember.findUnique({
+        where: {
+          userId_restaurantId: {
+            userId,
+            restaurantId,
+          },
+        },
+        select: {
+          id: true,
+          role: true,
+          customRole: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              isActive: true,
+              permissions: {
+                where: {
+                  permission: {
+                    isActive: true,
+                  },
+                },
+                select: {
+                  permission: {
+                    select: {
+                      code: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+    if (
+      !organizationMembership.allRestaurants &&
+      !restaurantMembership
+    ) {
+      throw new NotFoundException(
+        'Active workspace membership not found',
+      );
+    }
+
+    // 5. Determinar el rol efectivo.
+    const effectiveRole =
+      restaurantMembership?.role ??
+      organizationMembership.role;
+
+    const customRole =
+      restaurantMembership?.customRole ?? null;
+
+    // 6. Validar la suscripción de toda la organización.
+    const subscription =
+      await this.prisma.subscription.findFirst({
+        where: {
+          organizationId: restaurant.organizationId,
+          status: 'ACTIVE',
+          currentPeriodEnd: {
+            gt: now,
+          },
+        },
+        orderBy: {
+          currentPeriodEnd: 'desc',
+        },
+        select: {
+          id: true,
+          status: true,
+          currentPeriodEnd: true,
+        },
+      });
+
+    if (!subscription) {
+      const latestSubscription =
+        await this.prisma.subscription.findFirst({
+          where: {
+            organizationId: restaurant.organizationId,
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+          select: {
+            id: true,
+            status: true,
+            planId: true,
+            plan: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+              },
+            },
+          },
+        });
+
+      throw new ForbiddenException({
+        code: 'SUBSCRIPTION_REQUIRED',
+        subscriptionId: latestSubscription?.id ?? null,
+        subscriptionStatus: latestSubscription?.status ?? null,
+        previousPlan: latestSubscription?.plan ?? null,
+        message:
+          'An active subscription is required to access this workspace.',
+      });
+    }
+
+    // 7. Resolver permisos efectivos.
+    let permissions: string[];
+
+    if (customRole) {
+      if (!customRole.isActive) {
+        throw new ForbiddenException(
+          'The assigned custom role is inactive',
+        );
+      }
+
+      permissions = [
+        ...new Set(
+          customRole.permissions.map(
+            ({ permission }) => permission.code,
+          ),
+        ),
+      ];
+    } else {
+      const rolePermissions =
+        SYSTEM_ROLE_PERMISSIONS[effectiveRole];
+
+      if (!rolePermissions) {
+        throw new ForbiddenException(
+          'The assigned role has no permission configuration',
+        );
+      }
+
+      permissions = [...new Set(rolePermissions)];
+    }
+
+    return {
+      restaurantId: restaurant.id,
+      organizationId: restaurant.organizationId,
+      permissions,
+    };
+  }
+
+  /**
+   * Compatibilidad con los consumidores actuales
+   * que solo necesitan la lista de permisos.
+   */
+  async getPermissions(
+    userId: string,
+    restaurantId: string,
+  ): Promise<string[]> {
+    const workspace = await this.getWorkspaceAccess(
+      userId,
+      restaurantId,
+    );
+
+    return workspace.permissions;
+  }
+
+  async assertOrganizationPermission(
+    userId: string,
+    organizationId: string,
+    requiredPermission: string,
+  ): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: {
+        id: userId,
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+
+    if (!user || user.status !== 'ACTIVE') {
+      throw new UnauthorizedException(
+        'User is not authenticated',
+      );
+    }
+
+    const organization =
+      await this.prisma.organization.findFirst({
+        where: {
+          id: organizationId,
+          status: 'ACTIVE',
+        },
+        select: {
+          id: true,
+        },
+      });
+
+    if (!organization) {
+      throw new NotFoundException(
+        'Organization not found',
+      );
+    }
+
+    const membership =
+      await this.prisma.organizationMember.findUnique({
+        where: {
+          userId_organizationId: {
+            userId,
+            organizationId,
+          },
+        },
+        select: {
+          id: true,
+          role: true,
+        },
+      });
+
+    if (!membership) {
+      throw new ForbiddenException(
+        'You are not a member of this organization',
+      );
+    }
+
+    const permissions: readonly string[] =
+      SYSTEM_ROLE_PERMISSIONS[membership.role] ?? [];
+
+    if (!permissions.includes(requiredPermission)) {
+      throw new ForbiddenException(
+        `Missing required permission: ${requiredPermission}`,
+      );
+    }
+  }
+}
+---------- FILE: src/common/authorization/guards/workspace-context.guard.ts ----------
+import {
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
+
+import type { Request } from 'express';
+
+import {
+  WorkspaceAuthorizationService,
+} from '../services/workspace-authorization.service.js';
+
+interface AuthenticatedUser {
+  userId: string;
+  email: string;
+}
+
+interface WorkspaceAuthorization {
+  restaurantId: string;
+  organizationId: string;
+  permissions: string[];
+}
+
+interface AuthorizedRequest extends Request {
+  user?: AuthenticatedUser;
+  workspaceAuthorization?: WorkspaceAuthorization;
+}
+
+@Injectable()
+export class WorkspaceContextGuard implements CanActivate {
+  constructor(
+    private readonly workspaceAuthorizationService:
+      WorkspaceAuthorizationService,
+  ) {}
+
+  async canActivate(
+    context: ExecutionContext,
+  ): Promise<boolean> {
+    const request = context
+      .switchToHttp()
+      .getRequest<AuthorizedRequest>();
+
+    if (!request.user?.userId) {
+      throw new UnauthorizedException(
+        'User is not authenticated',
+      );
+    }
+
+    const restaurantId =
+      request.header('X-Restaurant-Id');
+
+    if (!restaurantId?.trim()) {
+      throw new ForbiddenException(
+        'A restaurant must be selected',
+      );
+    }
+
+    const workspace =
+      await this.workspaceAuthorizationService.getWorkspaceAccess(
+        request.user.userId,
+        restaurantId,
+      );
+
+    request.workspaceAuthorization = {
+      restaurantId: workspace.restaurantId,
+      organizationId: workspace.organizationId,
+      permissions: workspace.permissions,
+    };
+
+    return true;
+  }
+}
+---------- FILE: src/common/authorization/guards/permissions.guard.ts ----------
+import {
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import type { Request } from 'express';
+
+import { REQUIRED_PERMISSIONS_KEY } from '../decorators/require-permissions.decorator.js';
+
+interface AuthenticatedUser {
+  userId: string;
+  email: string;
+}
+
+interface WorkspaceAuthorization {
+  permissions: string[];
+}
+
+interface AuthorizedRequest extends Request {
+  user?: AuthenticatedUser;
+  workspaceAuthorization?: WorkspaceAuthorization;
+}
+
+@Injectable()
+export class PermissionsGuard implements CanActivate {
+  constructor(private readonly reflector: Reflector) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    const requiredPermissions =
+      this.reflector.getAllAndOverride<string[]>(
+        REQUIRED_PERMISSIONS_KEY,
+        [context.getHandler(), context.getClass()],
+      );
+
+    // Los endpoints sin permisos declarados no requieren este guard.
+    if (!requiredPermissions?.length) {
+      return true;
+    }
+
+    const request = context
+      .switchToHttp()
+      .getRequest<AuthorizedRequest>();
+
+    if (!request.user?.userId) {
+      throw new UnauthorizedException(
+        'User is not authenticated',
+      );
+    }
+
+    const workspace = request.workspaceAuthorization;
+
+    if (!workspace) {
+      throw new ForbiddenException(
+        'Workspace authorization context is missing',
+      );
+    }
+
+    const hasAllPermissions = requiredPermissions.every(
+      (permission) => workspace.permissions.includes(permission),
+    );
+
+    if (!hasAllPermissions) {
+      throw new ForbiddenException(
+        'You do not have the required permissions',
+      );
+    }
+
+    return true;
+  }
+}
+========== AUTHENTICATION GUARDS ==========
+
+---------- FILE: src/modules/auth/services/strategies/jwt.strategy.ts ----------
+import {
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
+
+import { ConfigService } from '@nestjs/config';
+import { PassportStrategy } from '@nestjs/passport';
+
+import {
+  ExtractJwt,
+  Strategy,
+} from 'passport-jwt';
+
+import type { Request } from 'express';
+
+import { PrismaService } from '../../../../database/prisma/prisma.service.js';
+
+interface JwtPayload {
+  sub: string;
+  email: string;
+}
+
+@Injectable()
+export class JwtStrategy extends PassportStrategy(
+  Strategy,
+  'jwt',
+) {
+  constructor(
+    configService: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
+    super({
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        (request: Request) =>
+          request?.cookies?.access_token ?? null,
+      ]),
+
+      ignoreExpiration: false,
+
+      secretOrKey: configService.getOrThrow<string>(
+        'JWT_ACCESS_SECRET',
+      ),
+
+      algorithms: ['HS256'],
+    });
+  }
+
+  async validate(
+    payload: JwtPayload,
+  ): Promise<{
+    userId: string;
+    email: string;
+  }> {
+    if (
+      !payload ||
+      typeof payload.sub !== 'string' ||
+      payload.sub.trim().length === 0 ||
+      typeof payload.email !== 'string' ||
+      payload.email.trim().length === 0
+    ) {
+      throw new UnauthorizedException(
+        'Invalid authentication token',
+      );
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: {
+        id: payload.sub,
+      },
+
+      select: {
+        id: true,
+        email: true,
+        status: true,
+      },
+    });
+
+    if (
+      !user ||
+      user.status !== 'ACTIVE' ||
+      user.email !== payload.email
+    ) {
+      throw new UnauthorizedException(
+        'Invalid authentication token',
+      );
+    }
+
+    return {
+      userId: user.id,
+      email: user.email,
+    };
+  }
+}
+---------- FILE: src/modules/auth/guards/jwt-auth/jwt-auth.guard.ts ----------
+import { Injectable } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+
+@Injectable()
+export class JwtAuthGuard extends AuthGuard('jwt') {}
+========== MAIN.TS ==========
+import { NestFactory } from '@nestjs/core';
+import {
+  ValidationPipe,
+  VersioningType,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import {
+  DocumentBuilder,
+  SwaggerModule,
+} from '@nestjs/swagger';
+import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
+
+import { AppModule } from './app.module.js';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
+import { loggerConfig } from './common/logger/logger.config.js';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule, {
+
+    logger: loggerConfig,
+
+  });
+
+  const configService =
+    app.get(ConfigService);
+
+  app.use(cookieParser());
+
+  app.use(helmet());
+
+  app.enableCors({
+    origin:
+      configService.getOrThrow<string>(
+        'FRONTEND_URL',
+      ),
+    methods: [
+      'GET',
+      'HEAD',
+      'POST',
+      'PUT',
+      'PATCH',
+      'DELETE',
+    ],
+    credentials: true,
+  });
+
+  app.setGlobalPrefix('api');
+
+  app.enableVersioning({
+    type: VersioningType.URI,
+  });
+
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
+
+  app.useGlobalFilters(
+    new HttpExceptionFilter(),
+  );
+
+  const swaggerConfig =
+    new DocumentBuilder()
+      .setTitle('PromoApp API')
+      .setDescription(
+        'API REST para la plataforma PromoApp',
+      )
+      .setVersion('1.0')
+      .build();
+
+  const swaggerDocument =
+    SwaggerModule.createDocument(
+      app,
+      swaggerConfig,
+    );
+
+  SwaggerModule.setup(
+    'api/docs',
+    app,
+    swaggerDocument,
+  );
+
+  await app.listen(
+    configService.get<number>(
+      'PORT',
+      3000,
+    ),
+  );
+}
+
+await bootstrap();
+========== APP.MODULE.TS ==========
+import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+import { ConfigModule } from '@nestjs/config';
+import {
+  ThrottlerGuard,
+  ThrottlerModule,
+} from '@nestjs/throttler';
+
+import { AppController } from './app.controller.js';
+import { AppService } from './app.service.js';
+import { envValidationSchema } from './config/env.validation.js';
+
+import { HealthModule } from './health/health.module.js';
+import { PrismaModule } from './database/prisma/prisma.module.js';
+
+import { PlansModule } from './modules/plans/plans.module.js';
+import { CatalogsModule } from './modules/catalogs/catalogs.module.js';
+import { AuthModule } from './modules/auth/auth.module.js';
+import { PaymentsModule } from './modules/payments/payments.module.js';
+import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module.js';
+import { WorkspaceModule } from './modules/workspace/workspace.module.js';
+import { AuthorizationModule } from './common/authorization/authorization.module.js';
+import { OrganizationMembersModule } from './modules/organization-members/organization-members.module.js';
+import { PermissionsModule } from './modules/permissions/permissions.module.js';
+import { RolesModule } from './modules/roles/roles.module.js';
+import { RestaurantsModule } from './modules/restaurants/restaurants.module.js';
+import { PlanAccessModule } from './modules/plan-access/plan-access.module.js';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      validationSchema: envValidationSchema,
+    }),
+
+    ThrottlerModule.forRoot([
+      {
+        name: 'default',
+        ttl: 60000,
+        limit: 100,
+      },
+    ]),
+
+    HealthModule,
+    PrismaModule,
+    PlansModule,
+    CatalogsModule,
+    AuthModule,
+    PaymentsModule,
+    SubscriptionsModule,
+    WorkspaceModule,
+    AuthorizationModule,
+    OrganizationMembersModule,
+    PermissionsModule,
+    RolesModule,
+    RestaurantsModule,
+    PlanAccessModule,
+  ],
+
+  controllers: [
+    AppController,
+  ],
+
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
+})
+export class AppModule {}
+========== PRISMA SERVICE ==========
+
+---------- FILE: src/database/prisma/prisma.service.ts ----------
+import {
+  Injectable,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
+import { PrismaClient } from '@prisma/client';
+
+@Injectable()
+export class PrismaService
+  extends PrismaClient
+  implements OnModuleInit, OnModuleDestroy
+{
+  async onModuleInit(): Promise<void> {
+    await this.$connect();
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await this.$disconnect();
+  }
+}
+========== SQL RAW USAGE ==========
+src/modules/payments/services/payments/payments.service.ts:404:            const subscriptions = await tx.$queryRaw<
+src/modules/payments/services/payments/payments.service.ts:577:            await tx.$queryRaw<{ id: string }[]>`
+src/modules/payments/services/payments/payments.service.ts:614:                await tx.$queryRaw<{ id: string }[]>`
+src/modules/payments/services/wompi-webhook/wompi-webhook/wompi-webhook.service.ts:100:                const lockedPayments = await tx.$queryRaw<
+src/modules/payments/services/wompi-webhook/wompi-webhook/wompi-webhook.service.ts:315:        const organizations = await tx.$queryRaw<
+src/modules/auth/services/tokens/auth-token/auth-token.service.ts:101:        const rows = await tx.$queryRaw<
+src/modules/organization-members/services/organization-members.service.ts:520:          const organizations = await tx.$queryRaw<
+src/modules/subscriptions/services/subscription-renewal/subscription-renewal.service.ts:28:        const locked = await tx.$queryRaw<
+src/modules/subscriptions/services/subscriptions/subscriptions.service.ts:560:    const organizations = await tx.$queryRaw<
+
+========== MEMBERSHIP AND PERMISSION REFERENCES ==========
+src/modules/organization-members/dto/query-organization-members.dto/query-organization-members.dto.ts:47:  allRestaurants?: boolean;
+src/modules/organization-members/dto/create-organization-member.dto/create-organization-member.dto.ts:39:  allRestaurants!: boolean;
+src/modules/organization-members/dto/create-organization-member.dto/create-organization-member.dto.ts:41:  @ValidateIf((dto: CreateOrganizationMemberDto) => !dto.allRestaurants)
+src/modules/organization-members/dto/assign-restaurants.dto/assign-restaurants.dto.ts:11:  allRestaurants!: boolean;
+src/modules/organization-members/dto/assign-restaurants.dto/assign-restaurants.dto.ts:13:  @ValidateIf((dto: AssignRestaurantsDto) => !dto.allRestaurants)
+src/modules/organization-members/dto/update-organization-member.dto/update-organization-member.dto.ts:20:  allRestaurants?: boolean;
+src/modules/organization-members/controllers/organization-members.controller.ts:45:        private readonly organizationMembersService: OrganizationMembersService,
+src/modules/organization-members/controllers/organization-members.controller.ts:75:        return this.organizationMembersService.findAll(
+src/modules/organization-members/controllers/organization-members.controller.ts:92:        return this.organizationMembersService.findOne(
+src/modules/organization-members/controllers/organization-members.controller.ts:109:        return this.organizationMembersService.create(
+src/modules/organization-members/controllers/organization-members.controller.ts:127:        return this.organizationMembersService.update(
+src/modules/organization-members/controllers/organization-members.controller.ts:146:        return this.organizationMembersService.assignRestaurants(
+src/modules/organization-members/controllers/organization-members.controller.ts:164:        return this.organizationMembersService.remove(
+src/modules/organization-members/services/organization-members.service.ts:51:  private async assertCanManageMembers(
+src/modules/organization-members/services/organization-members.service.ts:56:      await this.prisma.organizationMember.findUnique({
+src/modules/organization-members/services/organization-members.service.ts:110:      'TEAM_MEMBERS',
+src/modules/organization-members/services/organization-members.service.ts:162:    await this.assertCanManageMembers(
+src/modules/organization-members/services/organization-members.service.ts:170:      allRestaurants,
+src/modules/organization-members/services/organization-members.service.ts:185:        await this.prisma.restaurantMember.findMany({
+src/modules/organization-members/services/organization-members.service.ts:212:      ...(allRestaurants !== undefined
+src/modules/organization-members/services/organization-members.service.ts:213:        ? { allRestaurants }
+src/modules/organization-members/services/organization-members.service.ts:220:              allRestaurants: true,
+src/modules/organization-members/services/organization-members.service.ts:234:        this.prisma.organizationMember.count({
+src/modules/organization-members/services/organization-members.service.ts:238:        this.prisma.organizationMember.findMany({
+src/modules/organization-members/services/organization-members.service.ts:249:            allRestaurants: true,
+src/modules/organization-members/services/organization-members.service.ts:269:    const restaurantMemberships =
+src/modules/organization-members/services/organization-members.service.ts:271:        ? await this.prisma.restaurantMember.findMany({
+src/modules/organization-members/services/organization-members.service.ts:298:      typeof restaurantMemberships
+src/modules/organization-members/services/organization-members.service.ts:301:    for (const assignment of restaurantMemberships) {
+src/modules/organization-members/services/organization-members.service.ts:330:        allRestaurants: member.allRestaurants,
+src/modules/organization-members/services/organization-members.service.ts:336:        restaurants: member.allRestaurants
+src/modules/organization-members/services/organization-members.service.ts:367:    await this.assertCanManageMembers(
+src/modules/organization-members/services/organization-members.service.ts:373:      await this.prisma.organizationMember.findFirst({
+src/modules/organization-members/services/organization-members.service.ts:382:          allRestaurants: true,
+src/modules/organization-members/services/organization-members.service.ts:404:      await this.prisma.restaurantMember.findMany({
+src/modules/organization-members/services/organization-members.service.ts:429:      restaurants: member.allRestaurants
+src/modules/organization-members/services/organization-members.service.ts:450:    await this.assertCanManageMembers(
+src/modules/organization-members/services/organization-members.service.ts:464:      !dto.allRestaurants &&
+src/modules/organization-members/services/organization-members.service.ts:474:    const restaurantIds = dto.allRestaurants
+src/modules/organization-members/services/organization-members.service.ts:541:            await tx.organizationMember.findUnique({
+src/modules/organization-members/services/organization-members.service.ts:586:            await tx.organizationMember.count({
+src/modules/organization-members/services/organization-members.service.ts:642:            await tx.organizationMember.findUnique({
+src/modules/organization-members/services/organization-members.service.ts:661:            await tx.organizationMember.create({
+src/modules/organization-members/services/organization-members.service.ts:666:                allRestaurants: dto.allRestaurants,
+src/modules/organization-members/services/organization-members.service.ts:673:                allRestaurants: true,
+src/modules/organization-members/services/organization-members.service.ts:679:            await tx.restaurantMember.createMany({
+src/modules/organization-members/services/organization-members.service.ts:723:    const actor = await this.assertCanManageMembers(
+src/modules/organization-members/services/organization-members.service.ts:731:      await this.prisma.organizationMember.findFirst({
+src/modules/organization-members/services/organization-members.service.ts:740:          allRestaurants: true,
+src/modules/organization-members/services/organization-members.service.ts:766:      dto.allRestaurants ?? member.allRestaurants;
+src/modules/organization-members/services/organization-members.service.ts:780:    } else if (member.allRestaurants) {
+src/modules/organization-members/services/organization-members.service.ts:798:        await tx.organizationMember.update({
+src/modules/organization-members/services/organization-members.service.ts:809:            allRestaurants: nextAllRestaurants,
+src/modules/organization-members/services/organization-members.service.ts:816:            allRestaurants: true,
+src/modules/organization-members/services/organization-members.service.ts:840:        await tx.restaurantMember.deleteMany({
+src/modules/organization-members/services/organization-members.service.ts:849:        await tx.restaurantMember.deleteMany({
+src/modules/organization-members/services/organization-members.service.ts:858:        await tx.restaurantMember.createMany({
+src/modules/organization-members/services/organization-members.service.ts:866:        await tx.restaurantMember.updateMany({
+src/modules/organization-members/services/organization-members.service.ts:898:        allRestaurants: dto.allRestaurants,
+src/modules/organization-members/services/organization-members.service.ts:913:    await this.assertCanManageMembers(
+src/modules/organization-members/services/organization-members.service.ts:921:      await this.prisma.organizationMember.findFirst({
+src/modules/organization-members/services/organization-members.service.ts:952:      await tx.restaurantMember.deleteMany({
+src/modules/organization-members/services/organization-members.service.ts:961:      await tx.organizationMember.delete({
+src/common/authorization/decorators/require-permissions.decorator.ts:6:export const RequirePermissions = (
+src/common/authorization/constants/role-permissions.constant.ts:3:export const SYSTEM_ROLE_PERMISSIONS = {
+src/common/authorization/services/permission-resolver.service.ts:9:  SYSTEM_ROLE_PERMISSIONS,
+src/common/authorization/services/permission-resolver.service.ts:12:type SystemRole = keyof typeof SYSTEM_ROLE_PERMISSIONS;
+src/common/authorization/services/permission-resolver.service.ts:30:    restaurantMemberId: string,
+src/common/authorization/services/permission-resolver.service.ts:42:                id: restaurantMemberId,
+src/common/authorization/services/permission-resolver.service.ts:94:        SYSTEM_ROLE_PERMISSIONS,
+src/common/authorization/services/permission-resolver.service.ts:105:      SYSTEM_ROLE_PERMISSIONS[role as SystemRole];
+src/common/authorization/services/workspace-authorization.service.ts:11:  SYSTEM_ROLE_PERMISSIONS,
+src/common/authorization/services/workspace-authorization.service.ts:77:    const organizationMembership =
+src/common/authorization/services/workspace-authorization.service.ts:78:      await this.prisma.organizationMember.findFirst({
+src/common/authorization/services/workspace-authorization.service.ts:86:          allRestaurants: true,
+src/common/authorization/services/workspace-authorization.service.ts:90:    if (!organizationMembership) {
+src/common/authorization/services/workspace-authorization.service.ts:97:    const restaurantMembership =
+src/common/authorization/services/workspace-authorization.service.ts:98:      await this.prisma.restaurantMember.findUnique({
+src/common/authorization/services/workspace-authorization.service.ts:134:      !organizationMembership.allRestaurants &&
+src/common/authorization/services/workspace-authorization.service.ts:135:      !restaurantMembership
+src/common/authorization/services/workspace-authorization.service.ts:144:      restaurantMembership?.role ??
+src/common/authorization/services/workspace-authorization.service.ts:145:      organizationMembership.role;
+src/common/authorization/services/workspace-authorization.service.ts:148:      restaurantMembership?.customRole ?? null;
+src/common/authorization/services/workspace-authorization.service.ts:222:        SYSTEM_ROLE_PERMISSIONS[effectiveRole];
+src/common/authorization/services/workspace-authorization.service.ts:256:  async assertOrganizationPermission(
+src/common/authorization/services/workspace-authorization.service.ts:295:      await this.prisma.organizationMember.findUnique({
+src/common/authorization/services/workspace-authorization.service.ts:315:      SYSTEM_ROLE_PERMISSIONS[membership.role] ?? [];
+
+========== PRISMA SCHEMA ==========
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum RestaurantStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+enum SubscriptionStatus {
+  PENDING
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+enum BillingInterval {
+  MONTH
+  YEAR
+}
+
+enum PaymentStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  VOIDED
+  ERROR
+}
+
+enum PaymentMethodType {
+  CARD
+  NEQUI
+}
+
+enum PaymentMethodStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum PaymentProvider {
+  WOMPI
+}
+
+model User {
+  id                      String               @id @default(cuid())
+  email                   String               @unique @db.VarChar(191)
+  passwordHash            String               @db.VarChar(255)
+  firstName               String               @db.VarChar(100)
+  status                  UserStatus           @default(ACTIVE)
+  termsAcceptedAt         DateTime?
+  privacyAcceptedAt       DateTime?
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+
+  memberships             RestaurantMember[]
+  organizationMemberships OrganizationMember[]
+  refreshTokens           RefreshToken[]
+
+  @@index([status])
+  @@map("users")
+}
+
+model Organization {
+  id            String               @id @default(cuid())
+  name          String               @db.VarChar(150)
+  status        RestaurantStatus     @default(ACTIVE)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  members       OrganizationMember[]
+  restaurants   Restaurant[]
+  subscriptions Subscription[]
+  roles         Role[]
+
+  @@index([status])
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id             String         @id @default(cuid())
+  userId         String
+  organizationId String
+  role           MembershipRole @default(STAFF)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  allRestaurants Boolean        @default(false)
+
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId, role])
+  @@map("organization_members")
+}
+
+model Restaurant {
+  id             String             @id @default(cuid())
+  organizationId String
+  name           String             @db.VarChar(150)
+  description    String?            @db.VarChar(500)
+  phone          String?            @db.VarChar(30)
+  address        String             @db.VarChar(255)
+  city           String             @db.VarChar(100)
+  department     String?            @db.VarChar(100)
+  latitude       Decimal?           @db.Decimal(10, 7)
+  longitude      Decimal?           @db.Decimal(10, 7)
+  website        String?            @db.VarChar(255)
+  instagram      String?            @db.VarChar(100)
+  facebook       String?            @db.VarChar(255)
+  status         RestaurantStatus   @default(ACTIVE)
+  cuisineId      String?
+  priceRangeId   String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  cuisine        Cuisine?           @relation(fields: [cuisineId], references: [id])
+  priceRange     PriceRange?        @relation(fields: [priceRangeId], references: [id])
+  memberships    RestaurantMember[]
+  paymentMethods PaymentMethod[]
+  subscriptions  Subscription[]
+  roles          Role[]
+
+  @@index([organizationId])
+  @@index([city])
+  @@index([department])
+  @@index([status])
+  @@index([cuisineId])
+  @@index([priceRangeId])
+  @@map("restaurants")
+}
+
+model RestaurantMember {
+  id           String         @id @default(cuid())
+  userId       String
+  restaurantId String
+  role         MembershipRole @default(STAFF)
+  roleId       String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  restaurant   Restaurant     @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  customRole   Role?          @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, restaurantId])
+  @@index([restaurantId, role])
+  @@index([roleId])
+  @@map("restaurant_members")
+}
+
+model Cuisine {
+  id          String       @id @default(cuid())
+  code        String       @unique @db.VarChar(50)
+  name        String       @db.VarChar(100)
+  isActive    Boolean      @default(true)
+  sortOrder   Int          @default(0)
+  restaurants Restaurant[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([isActive, sortOrder])
+  @@map("cuisines")
+}
+
+model PriceRange {
+  id          String       @id @default(cuid())
+  code        String       @unique @db.VarChar(20)
+  symbol      String       @db.VarChar(10)
+  name        String       @db.VarChar(100)
+  sortOrder   Int          @default(0)
+  isActive    Boolean      @default(true)
+  restaurants Restaurant[]
+
+  @@index([isActive, sortOrder])
+  @@map("price_ranges")
+}
+
+model Plan {
+  id                  String          @id @default(cuid())
+  code                String          @unique @db.VarChar(50)
+  name                String          @db.VarChar(100)
+  description         String?         @db.VarChar(500)
+  priceAmount         BigInt
+  currency            String          @default("COP") @db.Char(3)
+  billingInterval     BillingInterval @default(MONTH)
+  trialDays           Int             @default(0)
+  maxUsers            Int?
+  maxActivePromotions Int?
+  maxRestaurants      Int?
+  requiresPayment     Boolean         @default(false)
+  isFeatured          Boolean         @default(false)
+  isActive            Boolean         @default(true)
+  sortOrder           Int             @default(0)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  subscriptions          Subscription[] @relation("CurrentPlan")
+  scheduledSubscriptions Subscription[] @relation("ScheduledPlan")
+  features               PlanFeature[]
+
+  @@index([isActive, sortOrder])
+  @@map("plans")
+}
+
+model Feature {
+  id          String        @id @default(cuid())
+  code        String        @unique @db.VarChar(80)
+  name        String        @db.VarChar(150)
+  description String?       @db.VarChar(500)
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  plans       PlanFeature[]
+
+  @@map("features")
+}
+
+model PlanFeature {
+  planId    String
+  featureId String
+
+  plan      Plan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  feature   Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+
+  @@id([planId, featureId])
+  @@map("plan_features")
+}
+
+model Subscription {
+  id                      String             @id @default(cuid())
+  restaurantId            String
+  organizationId          String
+  planId                  String
+  scheduledPlanId         String?
+  renewalOfSubscriptionId String?             @unique
+
+  status                  SubscriptionStatus @default(PENDING)
+  startsAt                DateTime
+  trialEndsAt             DateTime?
+  currentPeriodStart      DateTime?
+  currentPeriodEnd        DateTime?
+  canceledAt              DateTime?
+
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+
+  restaurant              Restaurant         @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  organization            Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  plan                    Plan               @relation("CurrentPlan", fields: [planId], references: [id], onDelete: Restrict)
+  scheduledPlan           Plan?              @relation("ScheduledPlan", fields: [scheduledPlanId], references: [id], onDelete: Restrict)
+
+  renewalOfSubscription   Subscription?      @relation("SubscriptionRenewals", fields: [renewalOfSubscriptionId], references: [id], onDelete: Restrict)
+  renewals                Subscription[]     @relation("SubscriptionRenewals")
+
+  payments                Payment[]
+
+  @@index([restaurantId, status])
+  @@index([organizationId, status])
+  @@index([planId])
+  @@index([scheduledPlanId])
+  @@index([status, currentPeriodEnd])
+  @@map("subscriptions")
+}
+
+model PaymentMethod {
+  id                      String              @id @default(cuid())
+  restaurantId            String
+  provider                PaymentProvider     @default(WOMPI)
+  type                    PaymentMethodType
+  status                  PaymentMethodStatus @default(ACTIVE)
+  providerPaymentSourceId String              @unique @db.VarChar(191)
+  brand                   String?             @db.VarChar(50)
+  lastFour                String?             @db.VarChar(4)
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+
+  restaurant              Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  payments                Payment[]
+
+  @@index([restaurantId, status])
+  @@map("payment_methods")
+}
+
+model Payment {
+  id                    String          @id @default(cuid())
+  subscriptionId        String
+  paymentMethodId       String?
+  provider              PaymentProvider @default(WOMPI)
+  providerTransactionId String?         @unique @db.VarChar(191)
+  reference             String          @unique @db.VarChar(100)
+  amount                BigInt
+  currency              String          @default("COP") @db.Char(3)
+  status                PaymentStatus   @default(PENDING)
+  paidAt                DateTime?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  subscription          Subscription    @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  paymentMethod         PaymentMethod?  @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+
+  @@index([subscriptionId, status])
+  @@index([status])
+  @@map("payments")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique @db.VarChar(255)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+model Role {
+  id             String             @id @default(cuid())
+  code           String             @db.VarChar(50)
+  name           String             @db.VarChar(100)
+  description    String?            @db.VarChar(255)
+  restaurantId   String?
+  organizationId String?
+  isSystem       Boolean            @default(false)
+  isDefault      Boolean            @default(false)
+  isActive       Boolean            @default(true)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  restaurant     Restaurant?        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  organization   Organization?      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions    RolePermission[]
+  members        RestaurantMember[]
+
+  @@unique([restaurantId, code])
+  @@unique([organizationId, code])
+  @@index([restaurantId, isActive])
+  @@index([organizationId, isActive])
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  code        String           @unique @db.VarChar(100)
+  name        String           @db.VarChar(150)
+  description String?          @db.VarChar(255)
+  module      String           @db.VarChar(50)
+  isActive    Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  roles       RolePermission[]
+
+  @@index([module, isActive])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  createdAt    DateTime   @default(now())
+
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+========== END OF REPORT ==========
