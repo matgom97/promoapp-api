@@ -1,18 +1,25 @@
 import { Module } from '@nestjs/common';
-                                   
-import { PrismaService } from '../../database/prisma/prisma.service.js';
-import { AuthorizationModule } from '../../common/authorization/authorization.module.js';
-import { RestaurantsController } from './restaurants.controller.js';
-import { RestaurantsService } from './restaurants.service.js';
+
+import { RestaurantsController } from './controllers/restaurants.controller.js';
+
 import { PrismaModule } from '../../database/prisma/prisma.module.js';
+
+import { WorkspaceAuthorizationService } from '../../common/authorization/services/workspace-authorization.service.js';
+import { RestaurantsService } from './services/restaurants.service.js';
 
 @Module({
   imports: [
     PrismaModule,
-    AuthorizationModule,
   ],
-  controllers: [RestaurantsController],
-  providers: [RestaurantsService],
-  exports: [RestaurantsService],
+  controllers: [
+    RestaurantsController,
+  ],
+  providers: [
+    RestaurantsService,
+    WorkspaceAuthorizationService,
+  ],
+  exports: [
+    RestaurantsService,
+  ],
 })
 export class RestaurantsModule {}

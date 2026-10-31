@@ -145,7 +145,8 @@ async function seedFeatures() {
     {
       code: 'TEAM_MEMBERS',
       name: 'Gestión de miembros',
-      description: 'Creación, modificación y administración de miembros de la organización.',
+      description:
+        'Creación, modificación y administración de miembros de la organización.',
     },
     {
       code: 'MULTIPLE_RESTAURANTS',
@@ -426,7 +427,7 @@ async function seedPermissions() {
     },
     {
       code: 'promotions.delete',
-      name: 'Eliminar promociones',
+      name: 'Eliminar promociones.',
       description: 'Eliminar promociones.',
       module: 'promotions',
     },
@@ -454,6 +455,47 @@ async function seedPermissions() {
       description: 'Exportar información de clientes.',
       module: 'customers',
     },
+    // ============================================================
+    // RESTAURANTS AND BRANCHES
+    // ============================================================
+
+    {
+      code: 'restaurant.view',
+      name: 'Ver restaurantes',
+      description: 'Consultar los restaurantes de la organización.',
+      module: 'restaurants',
+    },
+    {
+      code: 'restaurant.create',
+      name: 'Crear restaurantes',
+      description: 'Crear restaurantes dentro de la organización.',
+      module: 'restaurants',
+    },
+    {
+      code: 'restaurant.update',
+      name: 'Editar restaurantes',
+      description: 'Modificar la información de los restaurantes.',
+      module: 'restaurants',
+    },
+    {
+      code: 'restaurant.branch.view',
+      name: 'Ver sedes',
+      description: 'Consultar las sedes de los restaurantes.',
+      module: 'restaurants',
+    },
+    {
+      code: 'restaurant.branch.update',
+      name: 'Editar sedes',
+      description: 'Modificar la información de las sedes.',
+      module: 'restaurants',
+    },
+    {
+      code: 'restaurant.branch.status.update',
+      name: 'Cambiar estado de sedes',
+      description: 'Actualizar el estado de las sedes.',
+      module: 'restaurants',
+    },
+
     {
       code: 'analytics.view',
       name: 'Ver analíticas',
@@ -499,7 +541,8 @@ async function seedPermissions() {
     {
       code: 'billing.view',
       name: 'Ver facturación',
-      description: 'Consultar la información de facturación y suscripciones.',
+      description:
+        'Consultar la información de facturación y suscripciones.',
       module: 'billing',
     },
     {

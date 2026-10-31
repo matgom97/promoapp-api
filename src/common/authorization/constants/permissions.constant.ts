@@ -1,31 +1,47 @@
 export const PERMISSIONS = {
-    DASHBOARD_VIEW: 'dashboard.view',
+  DASHBOARD_VIEW: 'dashboard.view',
 
-    PROMOTIONS_VIEW: 'promotions.view',
-    PROMOTIONS_CREATE: 'promotions.create',
-    PROMOTIONS_UPDATE: 'promotions.update',
-    PROMOTIONS_DELETE: 'promotions.delete',
+  // Promotions
+  PROMOTIONS_VIEW: 'promotions.view',
+  PROMOTIONS_CREATE: 'promotions.create',
+  PROMOTIONS_UPDATE: 'promotions.update',
+  PROMOTIONS_DELETE: 'promotions.delete',
 
-    REDEMPTIONS_VIEW: 'redemptions.view',
-    REDEMPTIONS_VALIDATE: 'redemptions.validate',
+  // Redemptions
+  REDEMPTIONS_VIEW: 'redemptions.view',
+  REDEMPTIONS_VALIDATE: 'redemptions.validate',
 
-    CUSTOMERS_VIEW: 'customers.view',
-    CUSTOMERS_EXPORT: 'customers.export',
+  // Customers
+  CUSTOMERS_VIEW: 'customers.view',
+  CUSTOMERS_EXPORT: 'customers.export',
 
-    ANALYTICS_VIEW: 'analytics.view',
+  // Analytics
+  ANALYTICS_VIEW: 'analytics.view',
 
-    TEAM_VIEW: 'team.view',
-    TEAM_MANAGE: 'team.manage',
+  // Team
+  TEAM_VIEW: 'team.view',
+  TEAM_MANAGE: 'team.manage',
 
-    ROLES_MANAGE: 'roles.manage',
-    ROLES_VIEW: 'roles.view',
+  // Roles
+  ROLES_MANAGE: 'roles.manage',
+  ROLES_VIEW: 'roles.view',
 
-    SETTINGS_VIEW: 'settings.view',
-    SETTINGS_MANAGE: 'settings.manage',
+  // Settings
+  SETTINGS_VIEW: 'settings.view',
+  SETTINGS_MANAGE: 'settings.manage',
 
-    BILLING_VIEW: 'billing.view',
-    BILLING_MANAGE: 'billing.manage',
+  // Billing
+  BILLING_VIEW: 'billing.view',
+  BILLING_MANAGE: 'billing.manage',
+
+  // Restaurants and branches
+  RESTAURANT_VIEW: 'restaurant.view',
+  RESTAURANT_CREATE: 'restaurant.create',
+  RESTAURANT_UPDATE: 'restaurant.update',
+  RESTAURANT_BRANCH_VIEW: 'restaurant.branch.view',
+  RESTAURANT_BRANCH_UPDATE: 'restaurant.branch.update',
+  RESTAURANT_BRANCH_STATUS_UPDATE: 'restaurant.branch.status.update',
 } as const;
 
 export type PermissionCode =
-    (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
+  (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

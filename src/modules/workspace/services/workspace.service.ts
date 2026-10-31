@@ -19,7 +19,7 @@ export class WorkspaceService {
 
   constructor(
     private readonly prisma: PrismaService,
-  ) {}
+  ) { }
 
   async getWorkspace(
     userId: string,
@@ -30,11 +30,9 @@ export class WorkspaceService {
     try {
       const now = new Date();
 
-      // 1. Validar usuario autenticado.
+      // 1. Validar usuario.
       const user = await this.prisma.user.findUnique({
-        where: {
-          id: userId,
-        },
+        where: { id: userId },
         select: {
           id: true,
           email: true,
@@ -50,92 +48,13 @@ export class WorkspaceService {
         );
       }
 
-      // 2. Buscar el restaurante y validar su organización.
-      const restaurant = await this.prisma.restaurant.findFirst({
-        where: {
-          id: restaurantId,
-          status: 'ACTIVE',
-          organization: {
-            status: 'ACTIVE',
-          },
-        },
-        select: {
-          id: true,
-          organizationId: true,
-          name: true,
-          city: true,
-          status: true,
+      // 2. Resolver una sede activa autorizada.
+      const restaurant = await this.resolveActiveRestaurant(
+        userId,
+        restaurantId,
+      );
 
-          organization: {
-            select: {
-              id: true,
-              name: true,
-              status: true,
-
-              subscriptions: {
-                orderBy: [
-                  {
-                    currentPeriodEnd: 'desc',
-                  },
-                  {
-                    createdAt: 'desc',
-                  },
-                ],
-                select: {
-                  id: true,
-                  status: true,
-                  startsAt: true,
-                  trialEndsAt: true,
-                  currentPeriodStart: true,
-                  currentPeriodEnd: true,
-                  canceledAt: true,
-                  createdAt: true,
-
-                  plan: {
-                    select: {
-                      id: true,
-                      code: true,
-                      name: true,
-                      description: true,
-                      priceAmount: true,
-                      currency: true,
-                      billingInterval: true,
-                      maxUsers: true,
-                      maxActivePromotions: true,
-                      maxRestaurants: true,
-
-                      features: {
-                        where: {
-                          feature: {
-                            isActive: true,
-                          },
-                        },
-                        select: {
-                          feature: {
-                            select: {
-                              code: true,
-                              name: true,
-                              description: true,
-                            },
-                          },
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      });
-
-      if (!restaurant) {
-        throw new NotFoundException(
-          'Active restaurant not found',
-        );
-      }
-
-      // 3. Consultar la membresía de organización.
+      // 3. Obtener membresía de organización.
       const organizationMembership =
         await this.prisma.organizationMember.findUnique({
           where: {
@@ -153,29 +72,30 @@ export class WorkspaceService {
 
       if (!organizationMembership) {
         throw new NotFoundException(
-          'Active workspace membership not found',
+          'Organization membership not found',
         );
       }
 
-      // 4. Consultar la asignación específica al restaurante.
+      // 4. Obtener membresía de restaurante.
       const restaurantMembership =
         await this.prisma.restaurantMember.findUnique({
           where: {
             userId_restaurantId: {
               userId,
-              restaurantId,
+              restaurantId: restaurant.id,
             },
           },
           select: {
             id: true,
             role: true,
-
             customRole: {
               select: {
                 code: true,
                 name: true,
                 isActive: true,
-
+                isSystem: true,
+                restaurantId: true,
+                organizationId: true,
                 permissions: {
                   where: {
                     permission: {
@@ -195,58 +115,73 @@ export class WorkspaceService {
           },
         });
 
-      /*
-       * Si el usuario no tiene acceso global,
-       * debe tener una asignación específica.
-       */
       if (
         !organizationMembership.allRestaurants &&
         !restaurantMembership
       ) {
         throw new NotFoundException(
-          'Active workspace membership not found',
+          'Restaurant membership not found',
         );
       }
 
-      /*
-       * 5. Resolver el rol efectivo.
-       *
-       * Una asignación específica prevalece sobre
-       * el rol general de la organización.
-       */
-      const effectiveRole =
-        restaurantMembership?.role ??
-        organizationMembership.role;
+      // 5. Resolver permisos.
 
-      const customRole =
-        restaurantMembership?.customRole ?? null;
+      // Los roles organizacionales tienen prioridad para OWNER y ADMIN.
+      // Los roles de restaurante se utilizan para los demás miembros.
+      const organizationHasAdministrativeRole =
+        organizationMembership.role === 'OWNER' ||
+        organizationMembership.role === 'ADMIN';
 
-      if (customRole && !customRole.isActive) {
-        throw new ForbiddenException(
-          'The assigned custom role is inactive',
-        );
+      const effectiveRole = organizationHasAdministrativeRole
+        ? organizationMembership.role
+        : restaurantMembership?.role ?? organizationMembership.role;
+
+      const customRole = restaurantMembership?.customRole ?? null;
+
+      // Determinar si el rol asignado es un rol del sistema.
+      const isSystemRole = customRole?.isSystem === true;
+
+      // Validar roles personalizados.
+      // Los roles globales del sistema no necesitan restaurantId
+      // ni organizationId.
+      if (customRole && !isSystemRole) {
+        const isRestaurantRole =
+          customRole.restaurantId === restaurant.id &&
+          customRole.organizationId === null;
+
+        const isOrganizationRole =
+          customRole.organizationId === restaurant.organizationId &&
+          customRole.restaurantId === null;
+
+        if (
+          !customRole.isActive ||
+          (!isRestaurantRole && !isOrganizationRole)
+        ) {
+          throw new ForbiddenException(
+            'The assigned custom role is not valid for this organization',
+          );
+        }
       }
 
-      const roleCode = customRole
-        ? customRole.code
-        : effectiveRole;
+      // Resolver el rol efectivo.
+      const useSystemPermissions =
+        !customRole || isSystemRole || organizationHasAdministrativeRole;
 
-      const roleName = customRole
-        ? customRole.name
-        : effectiveRole;
+      const roleCode = useSystemPermissions
+        ? effectiveRole
+        : customRole.code;
 
-      const permissions = customRole
-        ? customRole.permissions.map(
-            ({ permission }) => permission.code,
-          )
-        : SYSTEM_ROLE_PERMISSIONS[effectiveRole] ?? [];
+      const roleName = useSystemPermissions
+        ? effectiveRole
+        : customRole.name;
 
-      /*
-       * 6. Seleccionar la suscripción de la organización.
-       *
-       * La suscripción habilita el producto, pero no
-       * concede permisos administrativos al usuario.
-       */
+      const permissions = useSystemPermissions
+        ? SYSTEM_ROLE_PERMISSIONS[effectiveRole] ?? []
+        : customRole.permissions.map(
+          ({ permission }) => permission.code,
+        );
+
+      // 6. Validar suscripción.
       const subscriptions =
         restaurant.organization.subscriptions;
 
@@ -271,17 +206,17 @@ export class WorkspaceService {
         subscription.currentPeriodEnd !== null &&
         subscription.currentPeriodEnd > now;
 
-      if (!hasActiveSubscription) {
+      if (!hasActiveSubscription || !subscription) {
         throw new ForbiddenException({
           code: 'SUBSCRIPTION_REQUIRED',
           subscriptionId: subscription?.id ?? null,
           subscriptionStatus: subscription?.status ?? null,
           previousPlan: subscription?.plan
             ? {
-                id: subscription.plan.id,
-                name: subscription.plan.name,
-                code: subscription.plan.code,
-              }
+              id: subscription.plan.id,
+              name: subscription.plan.name,
+              code: subscription.plan.code,
+            }
             : null,
           message:
             'An active subscription is required to access this workspace.',
@@ -291,10 +226,10 @@ export class WorkspaceService {
       const plan = subscription.plan;
 
       this.logger.log(
-        'Workspace lookup completed successfully',
+        `Workspace resolved successfully for restaurant ${restaurant.id}`,
       );
 
-      // 7. Devolver el contexto del workspace.
+      // 7. Devolver el workspace de la sede resuelta.
       return {
         user: {
           id: user.id,
@@ -396,5 +331,285 @@ export class WorkspaceService {
         'Unable to retrieve workspace',
       );
     }
+  }
+
+  private async resolveActiveRestaurant(
+    userId: string,
+    requestedRestaurantId: string,
+  ) {
+    const requestedRestaurant =
+      await this.prisma.restaurant.findUnique({
+        where: {
+          id: requestedRestaurantId,
+        },
+        select: {
+          id: true,
+          organizationId: true,
+          status: true,
+          organization: {
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              subscriptions: {
+                orderBy: [
+                  { currentPeriodEnd: 'desc' },
+                  { createdAt: 'desc' },
+                ],
+                select: {
+                  id: true,
+                  status: true,
+                  startsAt: true,
+                  trialEndsAt: true,
+                  currentPeriodStart: true,
+                  currentPeriodEnd: true,
+                  canceledAt: true,
+                  createdAt: true,
+                  plan: {
+                    select: {
+                      id: true,
+                      code: true,
+                      name: true,
+                      description: true,
+                      priceAmount: true,
+                      currency: true,
+                      billingInterval: true,
+                      maxUsers: true,
+                      maxActivePromotions: true,
+                      maxRestaurants: true,
+                      features: {
+                        where: {
+                          feature: {
+                            isActive: true,
+                          },
+                        },
+                        select: {
+                          feature: {
+                            select: {
+                              code: true,
+                              name: true,
+                              description: true,
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+    if (!requestedRestaurant) {
+      throw new NotFoundException(
+        'Restaurant not found',
+      );
+    }
+
+    if (requestedRestaurant.organization.status !== 'ACTIVE') {
+      throw new ForbiddenException(
+        'The organization is inactive',
+      );
+    }
+
+    // Si el restaurante solicitado está activo, conservarlo.
+    if (requestedRestaurant.status === 'ACTIVE') {
+      return this.prisma.restaurant.findFirst({
+        where: {
+          id: requestedRestaurant.id,
+          status: 'ACTIVE',
+          organization: {
+            status: 'ACTIVE',
+          },
+        },
+        select: {
+          id: true,
+          organizationId: true,
+          name: true,
+          city: true,
+          status: true,
+          organization: {
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              subscriptions: {
+                orderBy: [
+                  { currentPeriodEnd: 'desc' },
+                  { createdAt: 'desc' },
+                ],
+                select: {
+                  id: true,
+                  status: true,
+                  startsAt: true,
+                  trialEndsAt: true,
+                  currentPeriodStart: true,
+                  currentPeriodEnd: true,
+                  canceledAt: true,
+                  createdAt: true,
+                  plan: {
+                    select: {
+                      id: true,
+                      code: true,
+                      name: true,
+                      description: true,
+                      priceAmount: true,
+                      currency: true,
+                      billingInterval: true,
+                      maxUsers: true,
+                      maxActivePromotions: true,
+                      maxRestaurants: true,
+                      features: {
+                        where: {
+                          feature: {
+                            isActive: true,
+                          },
+                        },
+                        select: {
+                          feature: {
+                            select: {
+                              code: true,
+                              name: true,
+                              description: true,
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }).then((restaurant) => {
+        if (!restaurant) {
+          throw new NotFoundException(
+            'Active restaurant not found',
+          );
+        }
+
+        return restaurant;
+      });
+    }
+
+    // El restaurante solicitado está inactivo.
+    // Buscar una sede activa a la que el usuario tenga acceso.
+    const organizationMembership =
+      await this.prisma.organizationMember.findUnique({
+        where: {
+          userId_organizationId: {
+            userId,
+            organizationId: requestedRestaurant.organizationId,
+          },
+        },
+        select: {
+          allRestaurants: true,
+        },
+      });
+
+    if (!organizationMembership) {
+      throw new NotFoundException(
+        'Organization membership not found',
+      );
+    }
+
+    const alternativeRestaurant =
+      await this.prisma.restaurant.findFirst({
+        where: {
+          organizationId: requestedRestaurant.organizationId,
+          status: 'ACTIVE',
+          organization: {
+            status: 'ACTIVE',
+          },
+          ...(organizationMembership.allRestaurants
+            ? {}
+            : {
+              memberships: {
+                some: {
+                  userId,
+                },
+              },
+            }),
+        },
+        orderBy: {
+          createdAt: 'asc',
+        },
+        select: {
+          id: true,
+          organizationId: true,
+          name: true,
+          city: true,
+          status: true,
+          organization: {
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              subscriptions: {
+                orderBy: [
+                  { currentPeriodEnd: 'desc' },
+                  { createdAt: 'desc' },
+                ],
+                select: {
+                  id: true,
+                  status: true,
+                  startsAt: true,
+                  trialEndsAt: true,
+                  currentPeriodStart: true,
+                  currentPeriodEnd: true,
+                  canceledAt: true,
+                  createdAt: true,
+                  plan: {
+                    select: {
+                      id: true,
+                      code: true,
+                      name: true,
+                      description: true,
+                      priceAmount: true,
+                      currency: true,
+                      billingInterval: true,
+                      maxUsers: true,
+                      maxActivePromotions: true,
+                      maxRestaurants: true,
+                      features: {
+                        where: {
+                          feature: {
+                            isActive: true,
+                          },
+                        },
+                        select: {
+                          feature: {
+                            select: {
+                              code: true,
+                              name: true,
+                              description: true,
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+    if (!alternativeRestaurant) {
+      throw new NotFoundException(
+        'No active restaurant is available for this organization',
+      );
+    }
+
+    this.logger.warn(
+      `Requested restaurant ${requestedRestaurantId} is inactive. ` +
+      `Using active restaurant ${alternativeRestaurant.id} instead.`,
+    );
+
+    return alternativeRestaurant;
   }
 }
