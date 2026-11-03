@@ -1,4 +1,7 @@
-import { PrismaClient } from '@prisma/client';
+import {
+  PrismaClient,
+  BillingInterval,
+} from '@prisma/client';
 
 import {
   SYSTEM_ROLE_PERMISSIONS,
@@ -6,671 +9,1019 @@ import {
 
 import type {
   PermissionCode,
+  SystemRoleCode,
 } from '../src/common/authorization/constants/permissions.constant.js';
 
 const prisma = new PrismaClient();
 
-// ============================================================
+// ======================================================
 // CUISINES
-// ============================================================
+// ======================================================
 
-async function seedCuisines() {
-  const cuisines = [
-    { code: 'colombian', name: 'Colombiana', sortOrder: 1 },
-    { code: 'parrilla', name: 'Parrilla', sortOrder: 2 },
-    { code: 'italian', name: 'Italiana', sortOrder: 3 },
-    { code: 'mexican', name: 'Mexicana', sortOrder: 4 },
-    { code: 'asian', name: 'Asiática', sortOrder: 5 },
-    { code: 'seafood', name: 'Mariscos', sortOrder: 6 },
-    { code: 'fast-food', name: 'Comida rápida', sortOrder: 7 },
-    { code: 'cafe', name: 'Café', sortOrder: 8 },
-    { code: 'other', name: 'Otra', sortOrder: 9 },
-  ];
+const cuisines = [
+  { code: 'colombian', name: 'Colombiana', sortOrder: 1 },
+  { code: 'grill', name: 'Parrilla', sortOrder: 2 },
+  { code: 'italian', name: 'Italiana', sortOrder: 3 },
+  { code: 'mexican', name: 'Mexicana', sortOrder: 4 },
+  { code: 'asian', name: 'Asiática', sortOrder: 5 },
+  { code: 'seafood', name: 'Mariscos', sortOrder: 6 },
+  { code: 'fast-food', name: 'Comida rápida', sortOrder: 7 },
+  { code: 'cafe', name: 'Café', sortOrder: 8 },
+  { code: 'other', name: 'Otra', sortOrder: 9 },
+];
 
-  for (const cuisine of cuisines) {
-    await prisma.cuisine.upsert({
-      where: { code: cuisine.code },
-      update: {
-        name: cuisine.name,
-        sortOrder: cuisine.sortOrder,
-        isActive: true,
-      },
-      create: {
-        ...cuisine,
-        isActive: true,
-      },
-    });
-  }
-
-  console.log(`✓ ${cuisines.length} cuisines seeded`);
-}
-
-// ============================================================
+// ======================================================
 // PRICE RANGES
-// ============================================================
+// ======================================================
 
-async function seedPriceRanges() {
-  const priceRanges = [
-    {
-      code: 'economic',
-      symbol: '$',
-      name: 'Económico',
-      sortOrder: 1,
-    },
-    {
-      code: 'moderate',
-      symbol: '$$',
-      name: 'Moderado',
-      sortOrder: 2,
-    },
-    {
-      code: 'premium',
-      symbol: '$$$',
-      name: 'Premium',
-      sortOrder: 3,
-    },
-    {
-      code: 'fine-dining',
-      symbol: '$$$$',
-      name: 'Alta cocina',
-      sortOrder: 4,
-    },
-  ];
+const priceRanges = [
+  {
+    code: 'economic',
+    symbol: '$',
+    name: 'Económico',
+    sortOrder: 1,
+  },
+  {
+    code: 'moderate',
+    symbol: '$$',
+    name: 'Moderado',
+    sortOrder: 2,
+  },
+  {
+    code: 'premium',
+    symbol: '$$$',
+    name: 'Premium',
+    sortOrder: 3,
+  },
+  {
+    code: 'fine-dining',
+    symbol: '$$$$',
+    name: 'Alta cocina',
+    sortOrder: 4,
+  },
+];
 
-  for (const priceRange of priceRanges) {
-    await prisma.priceRange.upsert({
-      where: { code: priceRange.code },
-      update: {
-        symbol: priceRange.symbol,
-        name: priceRange.name,
-        sortOrder: priceRange.sortOrder,
-        isActive: true,
-      },
-      create: {
-        ...priceRange,
-        isActive: true,
-      },
-    });
-  }
+// ======================================================
+// FEATURES
+// ======================================================
 
-  console.log(`✓ ${priceRanges.length} price ranges seeded`);
-}
+const features = [
+  // Promociones
+  {
+    code: 'PROMOTIONS_BASIC',
+    name: 'Promociones básicas',
+    description: 'Crear y administrar promociones.',
+  },
+  {
+    code: 'PROMOTIONS_UNLIMITED',
+    name: 'Promociones ilimitadas',
+    description: 'Crear promociones sin límite de cantidad activa.',
+  },
 
-// ============================================================
-// PLAN FEATURES CATALOG
-// ============================================================
+  // Sedes
+  {
+    code: 'MULTI_RESTAURANT',
+    name: 'Múltiples restaurantes',
+    description: 'Administrar varias sedes desde una organización.',
+  },
 
-async function seedFeatures() {
-  const features = [
-    {
-      code: 'PROMOTIONS',
-      name: 'Promociones',
-      description: 'Creación y administración de promociones.',
-    },
-    {
-      code: 'QR_CODES',
-      name: 'Códigos QR',
-      description: 'Generación de códigos QR para promociones.',
-    },
-    {
-      code: 'VERIFIED_REDEMPTIONS',
-      name: 'Canjes verificados',
-      description: 'Validación y registro de canjes de promociones.',
-    },
-    {
-      code: 'BASIC_ANALYTICS',
-      name: 'Analíticas básicas',
-      description: 'Métricas básicas de promociones y canjes.',
-    },
-    {
-      code: 'CUSTOM_QR',
-      name: 'Códigos QR personalizados',
-      description: 'Personalización de códigos QR.',
-    },
-    {
-      code: 'ADVANCED_ANALYTICS',
-      name: 'Analíticas avanzadas',
-      description: 'Métricas y análisis avanzados.',
-    },
-    {
-      code: 'CUSTOMER_SEGMENTATION',
-      name: 'Segmentación de clientes',
-      description: 'Segmentación de clientes según comportamiento.',
-    },
-    {
-      code: 'USER_ROLES',
-      name: 'Usuarios y roles',
-      description: 'Gestión de usuarios y permisos.',
-    },
-    {
-      code: 'TEAM_MEMBERS',
-      name: 'Gestión de miembros',
-      description:
-        'Creación, modificación y administración de miembros de la organización.',
-    },
-    {
-      code: 'MULTIPLE_RESTAURANTS',
-      name: 'Múltiples restaurantes',
-      description: 'Gestión de múltiples restaurantes.',
-    },
-    {
-      code: 'ADVANCED_REPORTS',
-      name: 'Reportes avanzados',
-      description: 'Generación de reportes avanzados.',
-    },
-    {
-      code: 'TEAM_MANAGEMENT',
-      name: 'Gestión de equipos',
-      description: 'Administración de equipos de trabajo.',
-    },
-    {
-      code: 'PRIORITY_SUPPORT',
-      name: 'Soporte prioritario',
-      description: 'Atención prioritaria para clientes Business.',
-    },
-  ];
+  // Canjes
+  {
+    code: 'QR_REDEMPTIONS',
+    name: 'Canjes con código QR',
+    description: 'Validar y confirmar canjes mediante QR.',
+  },
+  {
+    code: 'REDEMPTION_HISTORY',
+    name: 'Historial de canjes',
+    description: 'Consultar el historial de canjes.',
+  },
 
-  for (const feature of features) {
-    await prisma.feature.upsert({
-      where: { code: feature.code },
-      update: {
-        name: feature.name,
-        description: feature.description,
-        isActive: true,
-      },
-      create: {
-        ...feature,
-        isActive: true,
-      },
-    });
-  }
+  // Analíticas
+  {
+    code: 'PROMOTION_ANALYTICS',
+    name: 'Analíticas de promociones',
+    description: 'Consultar métricas de rendimiento de promociones.',
+  },
 
-  console.log(`✓ ${features.length} features seeded`);
-}
+  // Equipo
+  {
+    code: 'TEAM_MANAGEMENT',
+    name: 'Gestión de equipo',
+    description: 'Administrar miembros y accesos del equipo.',
+  },
 
-// ============================================================
+  // Clientes
+  {
+    code: 'CUSTOMER_DATABASE',
+    name: 'Base de clientes',
+    description: 'Administrar y consultar clientes de la organización.',
+  },
+
+  // Segmentación
+  {
+    code: 'CUSTOMER_SEGMENTATION',
+    name: 'Segmentación de clientes',
+    description: 'Crear y administrar segmentos de clientes.',
+  },
+  {
+    code: 'TARGETED_PROMOTIONS',
+    name: 'Promociones dirigidas',
+    description: 'Crear promociones dirigidas a segmentos específicos.',
+  },
+
+  // Fidelización
+  {
+    code: 'LOYALTY_PROGRAM',
+    name: 'Programas de fidelización',
+    description: 'Crear programas de fidelización.',
+  },
+  {
+    code: 'LOYALTY_POINTS',
+    name: 'Sistema de puntos',
+    description: 'Administrar puntos de fidelización.',
+  },
+  {
+    code: 'LOYALTY_REWARDS',
+    name: 'Recompensas',
+    description: 'Configurar recompensas y beneficios.',
+  },
+
+  // Automatización
+  {
+    code: 'AUTOMATED_CAMPAIGNS',
+    name: 'Campañas automatizadas',
+    description: 'Automatizar campañas para clientes.',
+  },
+
+  // Analíticas avanzadas
+  {
+    code: 'ADVANCED_ANALYTICS',
+    name: 'Analíticas avanzadas',
+    description: 'Consultar métricas avanzadas.',
+  },
+
+  // Exportación
+  {
+    code: 'PROMOTION_EXPORT',
+    name: 'Exportación de reportes',
+    description: 'Exportar reportes de promociones y canjes.',
+  },
+];
+
+// ======================================================
 // PLANS
-// ============================================================
+// ======================================================
 
-async function seedPlans() {
-  const plans = [
-    {
-      code: 'starter',
-      name: 'Starter',
-      description: 'Para restaurantes que están comenzando.',
-      priceAmount: BigInt(0),
-      currency: 'COP',
-      billingInterval: 'MONTH' as const,
-      trialDays: 0,
-      maxUsers: null,
-      maxActivePromotions: 3,
-      maxRestaurants: 1,
-      requiresPayment: false,
-      isFeatured: false,
-      sortOrder: 1,
-    },
-    {
-      code: 'pro',
-      name: 'Pro',
-      description: 'Para restaurantes que quieren crecer.',
-      priceAmount: BigInt(39000),
-      currency: 'COP',
-      billingInterval: 'MONTH' as const,
-      trialDays: 14,
-      maxUsers: null,
-      maxActivePromotions: null,
-      maxRestaurants: 1,
-      requiresPayment: true,
-      isFeatured: true,
-      sortOrder: 2,
-    },
-    {
-      code: 'business',
-      name: 'Business',
-      description: 'Para equipos y operaciones más grandes.',
-      priceAmount: BigInt(89000),
-      currency: 'COP',
-      billingInterval: 'MONTH' as const,
-      trialDays: 0,
-      maxUsers: null,
-      maxActivePromotions: null,
-      maxRestaurants: null,
-      requiresPayment: true,
-      isFeatured: false,
-      sortOrder: 3,
-    },
-  ];
+const plans = [
+  {
+    code: 'STARTER',
+    name: 'Starter',
+    description: 'Plan inicial para comenzar a utilizar PromoApp.',
 
-  const result: Record<string, { id: string; code: string }> = {};
+    priceAmount: 0n,
+    currency: 'COP',
+    billingInterval: BillingInterval.MONTH,
 
+    trialDays: 0,
+
+    maxUsers: null,
+    maxActivePromotions: 3,
+    maxRestaurants: 1,
+
+    requiresPayment: false,
+    isFeatured: false,
+    isActive: true,
+    sortOrder: 1,
+
+    featureCodes: [
+      'PROMOTIONS_BASIC',
+      'QR_REDEMPTIONS',
+      'REDEMPTION_HISTORY',
+    ],
+  },
+  {
+    code: 'PRO',
+    name: 'Pro',
+    description: 'Para restaurantes que buscan ampliar sus campañas promocionales.',
+
+    priceAmount: 39000n,
+    currency: 'COP',
+    billingInterval: BillingInterval.MONTH,
+
+    trialDays: 14,
+
+    maxUsers: null,
+    maxActivePromotions: null,
+    maxRestaurants: 1,
+
+    requiresPayment: true,
+    isFeatured: true,
+    isActive: true,
+    sortOrder: 2,
+
+    featureCodes: [
+      'PROMOTIONS_BASIC',
+      'PROMOTIONS_UNLIMITED',
+      'QR_REDEMPTIONS',
+      'REDEMPTION_HISTORY',
+      'PROMOTION_ANALYTICS',
+      'TEAM_MANAGEMENT',
+    ],
+  },
+  {
+    code: 'BUSINESS',
+    name: 'Business',
+    description: 'Para organizaciones que administran múltiples restaurantes.',
+
+    priceAmount: 89000n,
+    currency: 'COP',
+    billingInterval: BillingInterval.MONTH,
+
+    trialDays: 0,
+
+    maxUsers: null,
+    maxActivePromotions: null,
+    maxRestaurants: null,
+
+    requiresPayment: true,
+    isFeatured: false,
+    isActive: true,
+    sortOrder: 3,
+
+    featureCodes: [
+      'PROMOTIONS_BASIC',
+      'PROMOTIONS_UNLIMITED',
+      'MULTI_RESTAURANT',
+      'QR_REDEMPTIONS',
+      'REDEMPTION_HISTORY',
+      'PROMOTION_ANALYTICS',
+      'TEAM_MANAGEMENT',
+    ],
+  },
+];
+
+// ======================================================
+// PROMOTION CATEGORIES
+// ======================================================
+
+const promotionCategories = [
+  {
+    code: 'FOOD',
+    name: 'Comidas',
+    description: 'Promociones relacionadas con comidas.',
+    sortOrder: 1,
+  },
+  {
+    code: 'DRINKS',
+    name: 'Bebidas',
+    description: 'Promociones relacionadas con bebidas.',
+    sortOrder: 2,
+  },
+  {
+    code: 'DESSERTS',
+    name: 'Postres',
+    description: 'Promociones relacionadas con postres.',
+    sortOrder: 3,
+  },
+  {
+    code: 'COMBOS',
+    name: 'Combos',
+    description: 'Promociones de combos y paquetes.',
+    sortOrder: 4,
+  },
+  {
+    code: 'DISCOUNTS',
+    name: 'Descuentos',
+    description: 'Descuentos generales.',
+    sortOrder: 5,
+  },
+  {
+    code: 'SPECIAL_BENEFITS',
+    name: 'Beneficios especiales',
+    description: 'Beneficios exclusivos para clientes.',
+    sortOrder: 6,
+  },
+  {
+    code: 'OTHER',
+    name: 'Otros',
+    description: 'Otras categorías de promociones.',
+    sortOrder: 7,
+  },
+];
+
+// ======================================================
+// PERMISSIONS
+// ======================================================
+
+const permissions = [
+  // --------------------------------------------------
+  // LEGACY RESTAURANT PERMISSIONS
+  // Se conservan para compatibilidad con servicios existentes.
+  // --------------------------------------------------
+
+  {
+    code: 'restaurant.view',
+    name: 'Ver restaurante',
+    description: 'Consultar la información del restaurante.',
+    module: 'restaurants',
+  },
+  {
+    code: 'restaurant.create',
+    name: 'Crear restaurante',
+    description: 'Crear un restaurante.',
+    module: 'restaurants',
+  },
+  {
+    code: 'restaurant.branch.view',
+    name: 'Ver sedes',
+    description: 'Consultar las sedes del restaurante.',
+    module: 'restaurants',
+  },
+  {
+    code: 'restaurant.branch.update',
+    name: 'Editar sedes',
+    description: 'Modificar información de las sedes.',
+    module: 'restaurants',
+  },
+  {
+    code: 'restaurant.branch.status.update',
+    name: 'Actualizar estado de sedes',
+    description: 'Activar o desactivar sedes.',
+    module: 'restaurants',
+  },
+
+  // --------------------------------------------------
+  // ORGANIZATION
+  // --------------------------------------------------
+
+  {
+    code: 'organization.read',
+    name: 'Ver organización',
+    description: 'Consultar la información de la organización.',
+    module: 'organization',
+  },
+  {
+    code: 'organization.update',
+    name: 'Editar organización',
+    description: 'Modificar la información de la organización.',
+    module: 'organization',
+  },
+
+  // --------------------------------------------------
+  // RESTAURANTS
+  // --------------------------------------------------
+
+  {
+    code: 'restaurants.read',
+    name: 'Ver sedes',
+    description: 'Consultar las sedes de la organización.',
+    module: 'restaurants',
+  },
+  {
+    code: 'restaurants.create',
+    name: 'Crear sedes',
+    description: 'Registrar nuevas sedes.',
+    module: 'restaurants',
+  },
+  {
+    code: 'restaurants.update',
+    name: 'Editar sedes',
+    description: 'Modificar información de las sedes.',
+    module: 'restaurants',
+  },
+  {
+    code: 'restaurants.manage_status',
+    name: 'Cambiar estado de sedes',
+    description: 'Activar o desactivar sedes.',
+    module: 'restaurants',
+  },
+
+  // --------------------------------------------------
+  // TEAM
+  // --------------------------------------------------
+
+  {
+    code: 'team.read',
+    name: 'Ver equipo',
+    description: 'Consultar miembros y sus asignaciones.',
+    module: 'team',
+  },
+  {
+    code: 'team.invite',
+    name: 'Invitar miembros',
+    description: 'Invitar usuarios a la organización o sede.',
+    module: 'team',
+  },
+  {
+    code: 'team.update',
+    name: 'Editar miembros',
+    description: 'Modificar roles y alcance de miembros.',
+    module: 'team',
+  },
+  {
+    code: 'team.remove',
+    name: 'Retirar miembros',
+    description: 'Retirar miembros de la organización o sede.',
+    module: 'team',
+  },
+  {
+    code: 'roles.manage',
+    name: 'Gestionar roles',
+    description: 'Crear y administrar roles y permisos.',
+    module: 'team',
+  },
+
+  // --------------------------------------------------
+  // PROMOTIONS
+  // --------------------------------------------------
+
+  {
+    code: 'promotions.read',
+    name: 'Ver promociones',
+    description: 'Consultar promociones según el alcance asignado.',
+    module: 'promotions',
+  },
+  {
+    code: 'promotions.create',
+    name: 'Crear promociones',
+    description: 'Crear promociones para la organización.',
+    module: 'promotions',
+  },
+  {
+    code: 'promotions.update',
+    name: 'Editar promociones',
+    description: 'Editar promociones existentes.',
+    module: 'promotions',
+  },
+  {
+    code: 'promotions.publish',
+    name: 'Publicar promociones',
+    description: 'Publicar o programar promociones.',
+    module: 'promotions',
+  },
+  {
+    code: 'promotions.pause',
+    name: 'Pausar promociones',
+    description: 'Pausar y reanudar promociones.',
+    module: 'promotions',
+  },
+  {
+    code: 'promotions.archive',
+    name: 'Archivar promociones',
+    description: 'Archivar promociones sin eliminar su historial.',
+    module: 'promotions',
+  },
+  {
+    code: 'promotions.manage_locations',
+    name: 'Asignar sedes a promociones',
+    description: 'Configurar sedes participantes.',
+    module: 'promotions',
+  },
+
+  // --------------------------------------------------
+  // REDEMPTIONS
+  // --------------------------------------------------
+
+  {
+    code: 'redemptions.validate',
+    name: 'Validar QR',
+    description: 'Validar la intención o token de canje.',
+    module: 'redemptions',
+  },
+  {
+    code: 'redemptions.confirm',
+    name: 'Confirmar canjes',
+    description: 'Confirmar y registrar un canje validado.',
+    module: 'redemptions',
+  },
+  {
+    code: 'redemptions.read',
+    name: 'Consultar canjes',
+    description: 'Consultar canjes dentro del alcance autorizado.',
+    module: 'redemptions',
+  },
+  {
+    code: 'redemptions.reverse',
+    name: 'Anular canjes',
+    description: 'Anular canjes con motivo y trazabilidad.',
+    module: 'redemptions',
+  },
+
+  // --------------------------------------------------
+  // CUSTOMERS
+  // --------------------------------------------------
+
+  {
+    code: 'customers.read',
+    name: 'Consultar clientes',
+    description: 'Consultar clientes de la organización.',
+    module: 'customers',
+  },
+  {
+    code: 'customers.update',
+    name: 'Editar clientes',
+    description: 'Modificar información permitida de clientes.',
+    module: 'customers',
+  },
+  {
+    code: 'customers.export',
+    name: 'Exportar clientes',
+    description: 'Exportar información autorizada de clientes.',
+    module: 'customers',
+  },
+
+  // --------------------------------------------------
+  // SEGMENTATION
+  // --------------------------------------------------
+
+  {
+    code: 'segments.read',
+    name: 'Consultar segmentos',
+    description: 'Consultar segmentos de clientes.',
+    module: 'segmentation',
+  },
+  {
+    code: 'segments.create',
+    name: 'Crear segmentos',
+    description: 'Crear segmentos de clientes.',
+    module: 'segmentation',
+  },
+  {
+    code: 'segments.update',
+    name: 'Editar segmentos',
+    description: 'Modificar reglas y miembros de segmentos.',
+    module: 'segmentation',
+  },
+  {
+    code: 'segments.delete',
+    name: 'Eliminar segmentos',
+    description: 'Eliminar segmentos.',
+    module: 'segmentation',
+  },
+
+  // --------------------------------------------------
+  // LOYALTY
+  // --------------------------------------------------
+
+  {
+    code: 'loyalty.read',
+    name: 'Consultar fidelización',
+    description: 'Consultar programas y movimientos.',
+    module: 'loyalty',
+  },
+  {
+    code: 'loyalty.manage',
+    name: 'Administrar fidelización',
+    description: 'Crear y configurar programas.',
+    module: 'loyalty',
+  },
+  {
+    code: 'loyalty.rewards.manage',
+    name: 'Administrar recompensas',
+    description: 'Crear y administrar recompensas.',
+    module: 'loyalty',
+  },
+  {
+    code: 'loyalty.points.adjust',
+    name: 'Ajustar puntos',
+    description: 'Realizar ajustes autorizados en puntos.',
+    module: 'loyalty',
+  },
+
+  // --------------------------------------------------
+  // ANALYTICS
+  // --------------------------------------------------
+
+  {
+    code: 'analytics.read',
+    name: 'Ver analíticas',
+    description: 'Consultar métricas e indicadores.',
+    module: 'analytics',
+  },
+
+  // --------------------------------------------------
+  // AUDIT
+  // --------------------------------------------------
+
+  {
+    code: 'audit.read',
+    name: 'Consultar auditoría',
+    description: 'Consultar registros de auditoría.',
+    module: 'audit',
+  },
+
+  // --------------------------------------------------
+  // SUBSCRIPTIONS
+  // --------------------------------------------------
+
+  {
+    code: 'subscriptions.read',
+    name: 'Ver suscripción',
+    description: 'Consultar el plan y estado de la suscripción.',
+    module: 'subscriptions',
+  },
+  {
+    code: 'subscriptions.manage',
+    name: 'Gestionar suscripción',
+    description: 'Cambiar o administrar la suscripción.',
+    module: 'subscriptions',
+  },
+
+  // --------------------------------------------------
+  // BILLING
+  // --------------------------------------------------
+
+  {
+    code: 'billing.read',
+    name: 'Ver facturación',
+    description: 'Consultar métodos de pago y pagos.',
+    module: 'billing',
+  },
+  {
+    code: 'billing.manage',
+    name: 'Gestionar facturación',
+    description: 'Administrar métodos de pago y operaciones.',
+    module: 'billing',
+  },
+];
+
+// ======================================================
+// SEED CUISINES
+// ======================================================
+
+async function seedCuisines(): Promise<void> {
+  for (const item of cuisines) {
+    await prisma.cuisine.upsert({
+      where: {
+        code: item.code,
+      },
+      update: {
+        name: item.name,
+        sortOrder: item.sortOrder,
+        isActive: true,
+      },
+      create: {
+        ...item,
+        isActive: true,
+      },
+    });
+  }
+}
+
+// ======================================================
+// SEED PRICE RANGES
+// ======================================================
+
+async function seedPriceRanges(): Promise<void> {
+  for (const item of priceRanges) {
+    await prisma.priceRange.upsert({
+      where: {
+        code: item.code,
+      },
+      update: {
+        symbol: item.symbol,
+        name: item.name,
+        sortOrder: item.sortOrder,
+        isActive: true,
+      },
+      create: {
+        ...item,
+        isActive: true,
+      },
+    });
+  }
+}
+
+// ======================================================
+// SEED FEATURES
+// ======================================================
+
+async function seedFeatures(): Promise<Map<string, string>> {
+  const featureIds = new Map<string, string>();
+
+  for (const item of features) {
+    const feature = await prisma.feature.upsert({
+      where: {
+        code: item.code,
+      },
+      update: {
+        name: item.name,
+        description: item.description,
+        isActive: true,
+      },
+      create: {
+        ...item,
+        isActive: true,
+      },
+    });
+
+    featureIds.set(feature.code, feature.id);
+  }
+
+  return featureIds;
+}
+
+// ======================================================
+// SEED PLANS
+// ======================================================
+
+async function seedPlans(
+  featureIds: Map<string, string>,
+): Promise<void> {
   for (const plan of plans) {
+    const {
+      featureCodes,
+      ...planData
+    } = plan;
+
+    // Los valores comerciales se establecen al crear el plan.
+    // Si ya existe, no sobrescribimos precios ni límites configurados.
     const savedPlan = await prisma.plan.upsert({
-      where: { code: plan.code },
+      where: {
+        code: plan.code,
+      },
       update: {
         name: plan.name,
         description: plan.description,
-        priceAmount: plan.priceAmount,
-        currency: plan.currency,
-        billingInterval: plan.billingInterval,
-        trialDays: plan.trialDays,
-        maxUsers: plan.maxUsers,
-        maxActivePromotions: plan.maxActivePromotions,
-        maxRestaurants: plan.maxRestaurants,
-        requiresPayment: plan.requiresPayment,
-        isFeatured: plan.isFeatured,
-        isActive: true,
         sortOrder: plan.sortOrder,
       },
-      create: {
-        ...plan,
-        isActive: true,
-      },
+      create: planData,
     });
 
-    result[savedPlan.code] = {
-      id: savedPlan.id,
-      code: savedPlan.code,
-    };
-  }
+    const relations = featureCodes.map((featureCode) => {
+      const featureId = featureIds.get(featureCode);
 
-  console.log(
-    `✓ Plans seeded: ${Object.keys(result).join(', ')}`,
-  );
-
-  return result;
-}
-
-// ============================================================
-// PLAN ↔ FEATURES
-// ============================================================
-
-async function seedPlanFeatures() {
-  const plans = await prisma.plan.findMany({
-    where: {
-      code: {
-        in: ['starter', 'pro', 'business'],
-      },
-    },
-  });
-
-  const features = await prisma.feature.findMany({
-    where: {
-      code: {
-        in: [
-          'PROMOTIONS',
-          'QR_CODES',
-          'VERIFIED_REDEMPTIONS',
-          'BASIC_ANALYTICS',
-          'CUSTOM_QR',
-          'ADVANCED_ANALYTICS',
-          'CUSTOMER_SEGMENTATION',
-          'USER_ROLES',
-          'TEAM_MEMBERS',
-          'MULTIPLE_RESTAURANTS',
-          'ADVANCED_REPORTS',
-          'TEAM_MANAGEMENT',
-          'PRIORITY_SUPPORT',
-        ],
-      },
-    },
-  });
-
-  const planMap = new Map(
-    plans.map((plan) => [plan.code, plan]),
-  );
-
-  const featureMap = new Map(
-    features.map((feature) => [feature.code, feature]),
-  );
-
-  const planFeatureMap: Record<string, string[]> = {
-    starter: [
-      'PROMOTIONS',
-      'QR_CODES',
-      'VERIFIED_REDEMPTIONS',
-      'BASIC_ANALYTICS',
-    ],
-
-    pro: [
-      'PROMOTIONS',
-      'QR_CODES',
-      'VERIFIED_REDEMPTIONS',
-      'BASIC_ANALYTICS',
-      'CUSTOM_QR',
-      'ADVANCED_ANALYTICS',
-      'CUSTOMER_SEGMENTATION',
-      'USER_ROLES',
-      'TEAM_MEMBERS',
-    ],
-
-    business: [
-      'PROMOTIONS',
-      'QR_CODES',
-      'VERIFIED_REDEMPTIONS',
-      'BASIC_ANALYTICS',
-      'CUSTOM_QR',
-      'ADVANCED_ANALYTICS',
-      'CUSTOMER_SEGMENTATION',
-      'USER_ROLES',
-      'TEAM_MEMBERS',
-      'MULTIPLE_RESTAURANTS',
-      'ADVANCED_REPORTS',
-      'TEAM_MANAGEMENT',
-      'PRIORITY_SUPPORT',
-    ],
-  };
-
-  for (const [planCode, featureCodes] of Object.entries(
-    planFeatureMap,
-  )) {
-    const plan = planMap.get(planCode);
-
-    if (!plan) {
-      throw new Error(`Plan not found: ${planCode}`);
-    }
-
-    for (const featureCode of featureCodes) {
-      const feature = featureMap.get(featureCode);
-
-      if (!feature) {
-        throw new Error(`Feature not found: ${featureCode}`);
+      if (!featureId) {
+        throw new Error(
+          `Feature no encontrada para el plan ${plan.code}: ${featureCode}`,
+        );
       }
 
-      await prisma.planFeature.upsert({
-        where: {
-          planId_featureId: {
-            planId: plan.id,
-            featureId: feature.id,
-          },
-        },
-        update: {},
-        create: {
-          planId: plan.id,
-          featureId: feature.id,
-        },
+      return {
+        planId: savedPlan.id,
+        featureId,
+      };
+    });
+
+    // Agrega relaciones faltantes sin borrar las existentes.
+    await prisma.planFeature.createMany({
+      data: relations,
+      skipDuplicates: true,
+    });
+  }
+}
+
+// ======================================================
+// SEED PERMISSIONS
+// ======================================================
+
+async function seedPermissions(): Promise<void> {
+  console.info('🔐 Sincronizando permisos...');
+
+  // Catálogo explícito del seed.
+  const permissionDefinitions = new Map(
+    permissions.map((permission) => [
+      permission.code,
+      permission,
+    ]),
+  );
+
+  // También incorporamos cualquier permiso asignado en la matriz
+  // de roles, evitando que una referencia quede sin registro en DB.
+  const rolePermissionCodes = Object.values(
+    SYSTEM_ROLE_PERMISSIONS,
+  ).flat() as PermissionCode[];
+
+  for (const code of rolePermissionCodes) {
+    if (!permissionDefinitions.has(code)) {
+      const module = code.split('.')[0];
+
+      const name = code
+        .split('.')
+        .join(' ')
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+      permissionDefinitions.set(code, {
+        code,
+        name,
+        description: `Permiso para ${name.toLowerCase()}.`,
+        module,
       });
     }
   }
 
-  console.log('✓ Plan features seeded');
-}
-
-// ============================================================
-// PERMISSIONS CATALOG
-// ============================================================
-
-async function seedPermissions() {
-  const permissions = [
-    {
-      code: 'dashboard.view',
-      name: 'Ver dashboard',
-      description: 'Consultar el panel principal.',
-      module: 'dashboard',
-    },
-    {
-      code: 'promotions.view',
-      name: 'Ver promociones',
-      description: 'Consultar promociones.',
-      module: 'promotions',
-    },
-    {
-      code: 'promotions.create',
-      name: 'Crear promociones',
-      description: 'Crear promociones.',
-      module: 'promotions',
-    },
-    {
-      code: 'promotions.update',
-      name: 'Editar promociones',
-      description: 'Modificar promociones.',
-      module: 'promotions',
-    },
-    {
-      code: 'promotions.delete',
-      name: 'Eliminar promociones.',
-      description: 'Eliminar promociones.',
-      module: 'promotions',
-    },
-    {
-      code: 'redemptions.view',
-      name: 'Ver canjes',
-      description: 'Consultar los canjes registrados.',
-      module: 'redemptions',
-    },
-    {
-      code: 'redemptions.validate',
-      name: 'Validar canjes',
-      description: 'Validar el canje de promociones.',
-      module: 'redemptions',
-    },
-    {
-      code: 'customers.view',
-      name: 'Ver clientes',
-      description: 'Consultar clientes.',
-      module: 'customers',
-    },
-    {
-      code: 'customers.export',
-      name: 'Exportar clientes',
-      description: 'Exportar información de clientes.',
-      module: 'customers',
-    },
-    // ============================================================
-    // RESTAURANTS AND BRANCHES
-    // ============================================================
-
-    {
-      code: 'restaurant.view',
-      name: 'Ver restaurantes',
-      description: 'Consultar los restaurantes de la organización.',
-      module: 'restaurants',
-    },
-    {
-      code: 'restaurant.create',
-      name: 'Crear restaurantes',
-      description: 'Crear restaurantes dentro de la organización.',
-      module: 'restaurants',
-    },
-    {
-      code: 'restaurant.update',
-      name: 'Editar restaurantes',
-      description: 'Modificar la información de los restaurantes.',
-      module: 'restaurants',
-    },
-    {
-      code: 'restaurant.branch.view',
-      name: 'Ver sedes',
-      description: 'Consultar las sedes de los restaurantes.',
-      module: 'restaurants',
-    },
-    {
-      code: 'restaurant.branch.update',
-      name: 'Editar sedes',
-      description: 'Modificar la información de las sedes.',
-      module: 'restaurants',
-    },
-    {
-      code: 'restaurant.branch.status.update',
-      name: 'Cambiar estado de sedes',
-      description: 'Actualizar el estado de las sedes.',
-      module: 'restaurants',
-    },
-
-    {
-      code: 'analytics.view',
-      name: 'Ver analíticas',
-      description: 'Consultar estadísticas.',
-      module: 'analytics',
-    },
-    {
-      code: 'team.view',
-      name: 'Ver equipo',
-      description: 'Consultar miembros del equipo.',
-      module: 'team',
-    },
-    {
-      code: 'team.manage',
-      name: 'Administrar equipo',
-      description: 'Administrar miembros del equipo.',
-      module: 'team',
-    },
-    {
-      code: 'roles.manage',
-      name: 'Administrar roles',
-      description: 'Gestionar roles y sus permisos.',
-      module: 'roles',
-    },
-    {
-      code: 'settings.view',
-      name: 'Ver configuración',
-      description: 'Consultar configuración del restaurante.',
-      module: 'settings',
-    },
-    {
-      code: 'settings.manage',
-      name: 'Administrar configuración',
-      description: 'Modificar configuración del restaurante.',
-      module: 'settings',
-    },
-    {
-      code: 'roles.view',
-      name: 'Ver roles',
-      description: 'Consultar roles y sus permisos.',
-      module: 'roles',
-    },
-    {
-      code: 'billing.view',
-      name: 'Ver facturación',
-      description:
-        'Consultar la información de facturación y suscripciones.',
-      module: 'billing',
-    },
-    {
-      code: 'billing.manage',
-      name: 'Administrar facturación',
-      description: 'Gestionar facturación y suscripciones.',
-      module: 'billing',
-    },
-  ] satisfies Array<{
-    code: PermissionCode;
-    name: string;
-    description: string;
-    module: string;
-  }>;
-
-  for (const permission of permissions) {
+  for (const item of permissionDefinitions.values()) {
     await prisma.permission.upsert({
       where: {
-        code: permission.code,
+        code: item.code,
       },
       update: {
-        name: permission.name,
-        description: permission.description,
-        module: permission.module,
+        name: item.name,
+        description: item.description,
+        module: item.module,
         isActive: true,
       },
       create: {
-        ...permission,
+        ...item,
         isActive: true,
       },
     });
   }
 
-  console.log(`✓ ${permissions.length} permissions seeded`);
+  console.info(
+    `✓ ${permissionDefinitions.size} permisos procesados`,
+  );
 }
 
-// ============================================================
-// SYSTEM ROLE ↔ PERMISSIONS
-// ============================================================
+// ======================================================
+// SEED ROLE PERMISSIONS
+// ======================================================
 
-async function seedRolePermissions() {
-  const systemRoleIds = {
-    OWNER: 'system_role_owner',
-    ADMIN: 'system_role_admin',
-    MANAGER: 'system_role_manager',
-    STAFF: 'system_role_staff',
-  } as const;
+async function seedRolePermissions(): Promise<void> {
+  console.info('🔐 Sincronizando permisos de roles...');
 
-  for (const [roleCode, permissionCodes] of Object.entries(
-    SYSTEM_ROLE_PERMISSIONS,
-  )) {
-    const roleId =
-      systemRoleIds[roleCode as keyof typeof systemRoleIds];
+  const roleCodes: SystemRoleCode[] = [
+    'OWNER',
+    'ADMIN',
+    'MANAGER',
+    'STAFF',
+  ];
 
+  for (const roleCode of roleCodes) {
+    // Busca el rol de sistema existente.
+    // No crea roles ni modifica roles personalizados.
     const role = await prisma.role.findFirst({
       where: {
-        id: roleId,
         code: roleCode,
         restaurantId: null,
+        organizationId: null,
         isSystem: true,
         isActive: true,
+      },
+      select: {
+        id: true,
+        code: true,
       },
     });
 
     if (!role) {
       throw new Error(
-        `System role not found or inactive: ${roleCode}`,
+        `No se encontró el rol de sistema ${roleCode}. No se pueden sincronizar sus permisos.`,
       );
     }
 
-    for (const permissionCode of permissionCodes) {
-      const permission = await prisma.permission.findUnique({
-        where: {
-          code: permissionCode,
-        },
-      });
+    const assignedCodes = [
+      ...new Set(SYSTEM_ROLE_PERMISSIONS[roleCode]),
+    ];
 
-      if (!permission || !permission.isActive) {
-        throw new Error(
-          `Active permission not found: ${permissionCode}`,
-        );
-      }
-
-      await prisma.rolePermission.upsert({
+    const permissionRecords =
+      await prisma.permission.findMany({
         where: {
-          roleId_permissionId: {
-            roleId: role.id,
-            permissionId: permission.id,
+          code: {
+            in: [...assignedCodes],
           },
+          isActive: true,
         },
-        update: {},
-        create: {
-          roleId: role.id,
-          permissionId: permission.id,
+        select: {
+          id: true,
+          code: true,
         },
       });
-    }
-  }
 
-  console.log('✓ System role permissions seeded');
+    const permissionsByCode = new Map(
+      permissionRecords.map((permission) => [
+        permission.code,
+        permission.id,
+      ]),
+    );
+
+    // Comprueba que todos los permisos asignados existan.
+    const missingPermissions = assignedCodes.filter(
+      (code) => !permissionsByCode.has(code),
+    );
+
+    if (missingPermissions.length > 0) {
+      throw new Error(
+        `Faltan permisos para el rol ${roleCode}: ${missingPermissions.join(', ')}`,
+      );
+    }
+
+    const rolePermissionRelations = assignedCodes.map(
+      (permissionCode) => {
+        const permissionId =
+          permissionsByCode.get(permissionCode);
+
+        if (!permissionId) {
+          throw new Error(
+            `No se encontró el ID del permiso ${permissionCode}.`,
+          );
+        }
+
+        return {
+          roleId: role.id,
+          permissionId,
+        };
+      },
+    );
+
+    // Crea únicamente relaciones faltantes.
+    // No elimina ni reemplaza asignaciones existentes.
+    await prisma.rolePermission.createMany({
+      data: rolePermissionRelations,
+      skipDuplicates: true,
+    });
+
+    console.info(
+      `✓ ${roleCode}: ${assignedCodes.length} permisos procesados`,
+    );
+  }
 }
 
-// ============================================================
-// MAIN
-// ============================================================
+// ======================================================
+// SEED PROMOTION CATEGORIES
+// ======================================================
 
-async function main() {
-  console.log('🌱 Starting PromoTable database seed...\n');
+async function seedPromotionCategories(): Promise<void> {
+  for (const item of promotionCategories) {
+    await prisma.promotionCategory.upsert({
+      where: {
+        code: item.code,
+      },
+      update: {
+        name: item.name,
+        description: item.description,
+        sortOrder: item.sortOrder,
+        isActive: true,
+      },
+      create: {
+        ...item,
+        isActive: true,
+      },
+    });
+  }
+}
+
+// ======================================================
+// MAIN
+// ======================================================
+
+async function main(): Promise<void> {
+  console.info('🌱 Iniciando seed de PromoApp...');
 
   await seedCuisines();
-  await seedPriceRanges();
-  await seedFeatures();
 
-  await seedPlans();
-  await seedPlanFeatures();
+  console.info(
+    `✓ ${cuisines.length} tipos de cocina`,
+  );
+
+  await seedPriceRanges();
+
+  console.info(
+    `✓ ${priceRanges.length} rangos de precios`,
+  );
+
+  const featureIds = await seedFeatures();
+
+  console.info(
+    `✓ ${features.length} funcionalidades`,
+  );
+
+  await seedPlans(featureIds);
+
+  console.info(
+    `✓ ${plans.length} planes`,
+  );
 
   await seedPermissions();
+
+  console.info(
+    `✓ ${permissions.length} permisos del catálogo procesados`,
+  );
+
   await seedRolePermissions();
 
-  console.log(
-    '\n✅ PromoTable database seed completed successfully.',
+  console.info(
+    '✓ Permisos de roles sincronizados',
   );
+
+  await seedPromotionCategories();
+
+  console.info(
+    `✓ ${promotionCategories.length} categorías de promociones`,
+  );
+
+  console.info('✅ Seed de PromoApp completado.');
 }
+
+// ======================================================
+// EXECUTION
+// ======================================================
 
 main()
   .catch((error: unknown) => {
-    console.error('\n❌ Seed failed:');
-    console.error(error);
+    console.error('❌ Error ejecutando el seed:', error);
 
     process.exitCode = 1;
   })

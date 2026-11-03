@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ConfigModule } from '@nestjs/config';
 import {
   ThrottlerGuard,
@@ -25,6 +26,7 @@ import { PermissionsModule } from './modules/permissions/permissions.module.js';
 import { RolesModule } from './modules/roles/roles.module.js';
 import { RestaurantsModule } from './modules/restaurants/restaurants.module.js';
 import { PlanAccessModule } from './modules/plan-access/plan-access.module.js';
+import { PromotionsModule } from './modules/promotions/promotions.module.js';
 
 @Module({
   imports: [
@@ -40,6 +42,7 @@ import { PlanAccessModule } from './modules/plan-access/plan-access.module.js';
         limit: 100,
       },
     ]),
+    ScheduleModule.forRoot(),
 
     HealthModule,
     PrismaModule,
@@ -55,6 +58,7 @@ import { PlanAccessModule } from './modules/plan-access/plan-access.module.js';
     RolesModule,
     RestaurantsModule,
     PlanAccessModule,
+    PromotionsModule,
   ],
 
   controllers: [

@@ -537,25 +537,65 @@ export class AuthService {
 
   return Promise.all(
     memberships.map(async (membership) => {
-      const restaurants = await this.prisma.restaurant.findMany({
-        where: {
-          organizationId: membership.organizationId,
-          ...(membership.allRestaurants
-            ? {}
-            : {
-                memberships: {
-                  some: { userId },
+      const [restaurants, subscription] = await Promise.all([
+        this.prisma.restaurant.findMany({
+          where: {
+            organizationId: membership.organizationId,
+            ...(membership.allRestaurants
+              ? {}
+              : {
+                  memberships: {
+                    some: { userId },
+                  },
+                }),
+          },
+          select: {
+            id: true,
+            organizationId: true,
+            name: true,
+            city: true,
+            status: true,
+          },
+        }),
+        this.prisma.subscription.findFirst({
+          where: { organizationId: membership.organizationId },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            status: true,
+            startsAt: true,
+            trialEndsAt: true,
+            currentPeriodStart: true,
+            currentPeriodEnd: true,
+            canceledAt: true,
+            plan: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                description: true,
+                priceAmount: true,
+                currency: true,
+                billingInterval: true,
+                maxUsers: true,
+                maxActivePromotions: true,
+                maxRestaurants: true,
+                features: {
+                  select: {
+                    feature: {
+                      select: {
+                        code: true,
+                        name: true,
+                        description: true,
+                      },
+                    },
+                  },
                 },
-              }),
-        },
-        select: {
-          id: true,
-          organizationId: true,
-          name: true,
-          city: true,
-          status: true,
-        },
-      });
+              },
+            },
+          },
+        }),
+      ]);
 
       return {
         id: membership.organization.id,
@@ -567,6 +607,23 @@ export class AuthService {
           allRestaurants: membership.allRestaurants,
         },
         restaurants,
+        subscription: subscription
+          ? {
+              ...subscription,
+              plan: {
+                ...subscription.plan,
+                priceAmount: subscription.plan.priceAmount.toString(),
+                features: subscription.plan.features.map(
+                  ({ feature }) => feature,
+                ),
+                limits: {
+                  maxUsers: subscription.plan.maxUsers,
+                  maxActivePromotions: subscription.plan.maxActivePromotions,
+                  maxRestaurants: subscription.plan.maxRestaurants,
+                },
+              },
+            }
+          : null,
       };
     }),
   );

@@ -32,6 +32,34 @@ interface WompiTransactionData {
     currency: string;
 }
 
+interface PayableSubscription {
+    id: string;
+    restaurantId: string | null;
+    restaurant: {
+        id: string;
+        organizationId: string;
+    } | null;
+    organizationId: string;
+    status: string;
+    organization: {
+        members: {
+            user: {
+                id: string;
+                email: string;
+            };
+        }[];
+    };
+    plan: {
+        id: string;
+        code: string;
+        name: string;
+        priceAmount: bigint;
+        currency: string;
+        billingInterval: 'MONTH' | 'YEAR';
+        requiresPayment: boolean;
+    };
+}
+
 @Injectable()
 export class PaymentsService {
     constructor(
@@ -59,6 +87,8 @@ export class PaymentsService {
         const subscription = await this.getPayableSubscription(
             dto.subscriptionId,
         );
+
+        const restaurantId = this.getRequiredRestaurantId(subscription);
 
         await this.assertNoUnresolvedPayment(subscription.id);
 
@@ -88,7 +118,7 @@ export class PaymentsService {
 
         const paymentMethod = await this.prisma.paymentMethod.create({
             data: {
-                restaurantId: subscription.restaurantId,
+                restaurantId,
                 provider: 'WOMPI',
                 type: 'CARD',
                 status: 'ACTIVE',
@@ -143,6 +173,8 @@ export class PaymentsService {
             dto.subscriptionId,
         );
 
+        const restaurantId = this.getRequiredRestaurantId(subscription);
+
         await this.assertNoUnresolvedPayment(subscription.id);
 
         const owner = subscription.organization.members[0]?.user;
@@ -175,7 +207,7 @@ export class PaymentsService {
 
         const paymentMethod = await this.prisma.paymentMethod.create({
             data: {
-                restaurantId: subscription.restaurantId,
+                restaurantId,
                 provider: 'WOMPI',
                 type: 'CARD',
                 status: 'ACTIVE',
@@ -221,6 +253,8 @@ export class PaymentsService {
             dto.subscriptionId,
         );
 
+        const restaurantId = this.getRequiredRestaurantId(subscription);
+
         await this.assertNoUnresolvedPayment(subscription.id);
 
         const owner = subscription.organization.members[0]?.user;
@@ -235,7 +269,7 @@ export class PaymentsService {
             await this.prisma.paymentMethod.findFirst({
                 where: {
                     id: dto.paymentMethodId,
-                    restaurantId: subscription.restaurantId,
+                    restaurantId,
                     status: 'ACTIVE',
                     provider: 'WOMPI',
                 },
@@ -263,13 +297,32 @@ export class PaymentsService {
     }
 
     /**
+     * Obtiene el restaurante asociado a una suscripción.
+     *
+     * PaymentMethod requiere obligatoriamente un restaurantId.
+     * Las suscripciones sin restaurante no pueden registrar
+     * métodos de pago bajo el modelo actual.
+     */
+    private getRequiredRestaurantId(
+        subscription: Pick<PayableSubscription, 'restaurantId'>,
+    ): string {
+        if (!subscription.restaurantId) {
+            throw new BadRequestException(
+                'This subscription does not have an associated restaurant. Payment methods require a restaurant.',
+            );
+        }
+
+        return subscription.restaurantId;
+    }
+
+    /**
      * Crea el pago local antes de solicitar el cobro.
      *
      * Nunca considera un timeout como un rechazo confirmado.
      * No activa la suscripción directamente.
      */
     private async createAndProcessTransaction(data: {
-        subscription: any;
+        subscription: PayableSubscription;
         paymentMethodId: string;
         paymentSourceId: string;
         customerEmail: string;
@@ -796,12 +849,19 @@ export class PaymentsService {
     /**
      * Obtiene la suscripción pendiente que puede pagarse.
      */
-    private async getPayableSubscription(subscriptionId: string) {
+    private async getPayableSubscription(
+        subscriptionId: string,
+    ): Promise<PayableSubscription> {
         const subscription =
             await this.prisma.subscription.findUnique({
                 where: { id: subscriptionId },
                 include: {
-                    restaurant: true,
+                    restaurant: {
+                        select: {
+                            id: true,
+                            organizationId: true,
+                        },
+                    },
                     organization: {
                         include: {
                             members: {
@@ -847,9 +907,12 @@ export class PaymentsService {
             );
         }
 
+        // La relación con Restaurant es opcional.
+        // Si existe, debe pertenecer a la misma organización.
         if (
+            subscription.restaurant &&
             subscription.restaurant.organizationId !==
-            subscription.organizationId
+                subscription.organizationId
         ) {
             throw new BadRequestException(
                 'Subscription and restaurant organization do not match',

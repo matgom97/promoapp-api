@@ -7,6 +7,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ======================================================
+// ENUMS EXISTENTES
+// ======================================================
+
 enum UserStatus {
   ACTIVE
   INACTIVE
@@ -62,52 +66,192 @@ enum PaymentProvider {
   WOMPI
 }
 
+// ======================================================
+// ENUMS PROMOCIONES
+// ======================================================
+
+enum PromotionType {
+  PERCENTAGE_DISCOUNT
+  FIXED_DISCOUNT
+  TWO_FOR_ONE
+  FREE_PRODUCT
+  SPECIAL_COMBO
+  SPECIAL_PRICE
+  EXCLUSIVE_BENEFIT
+}
+
+enum PromotionStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  PAUSED
+  EXPIRED
+  EXHAUSTED
+  ARCHIVED
+}
+
+enum PromotionFrequency {
+  ONCE
+  DAILY
+  WEEKLY
+  CALENDAR_MONTH
+  EVERY_N_DAYS
+  UNLIMITED
+}
+
+enum PromotionLimitPeriod {
+  CALENDAR_MONTH
+  ROLLING_DAYS
+}
+
+// ======================================================
+// ENUMS CANJES
+// ======================================================
+
+enum RedemptionIntentStatus {
+  PENDING
+  VALIDATED
+  CONSUMED
+  EXPIRED
+  CANCELLED
+}
+
+enum RedemptionStatus {
+  CONFIRMED
+  REVERSED
+}
+
+// ======================================================
+// ENUMS CLIENTES
+// ======================================================
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
+enum CustomerSegmentType {
+  STATIC
+  DYNAMIC
+}
+
+// ======================================================
+// ENUMS FIDELIZACIÓN
+// ======================================================
+
+enum LoyaltyProgramStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum LoyaltyTransactionType {
+  EARN
+  REDEEM
+  EXPIRE
+  ADJUSTMENT
+  REVERSAL
+}
+
+enum LoyaltyRewardType {
+  DISCOUNT
+  FREE_PRODUCT
+  SPECIAL_BENEFIT
+  CUSTOM
+}
+
+// ======================================================
+// USER
+// ======================================================
+
 model User {
-  id                      String               @id @default(cuid())
-  email                   String               @unique @db.VarChar(191)
-  passwordHash            String               @db.VarChar(255)
-  firstName               String               @db.VarChar(100)
-  status                  UserStatus           @default(ACTIVE)
+  id                      String      @id @default(cuid())
+  email                   String      @unique @db.VarChar(191)
+  passwordHash            String      @db.VarChar(255)
+  firstName               String      @db.VarChar(100)
+  status                  UserStatus  @default(ACTIVE)
+
   termsAcceptedAt         DateTime?
   privacyAcceptedAt       DateTime?
-  createdAt               DateTime             @default(now())
-  updatedAt               DateTime             @updatedAt
+
+  createdAt               DateTime    @default(now())
+  updatedAt               DateTime    @updatedAt
 
   memberships             RestaurantMember[]
   organizationMemberships OrganizationMember[]
   refreshTokens           RefreshToken[]
 
+  // Promociones
+  createdPromotions       Promotion[] @relation("PromotionCreator")
+  updatedPromotions       Promotion[] @relation("PromotionUpdater")
+
+  // Canjes
+  confirmedRedemptions    PromotionRedemption[] @relation("RedemptionEmployee")
+  reversedRedemptions     PromotionRedemption[] @relation("RedemptionReversalActor")
+
+  // Auditoría
+  promotionAuditLogs      PromotionAuditLog[]
+
   @@index([status])
   @@map("users")
 }
 
+// ======================================================
+// ORGANIZATION
+// ======================================================
+
 model Organization {
-  id            String               @id @default(cuid())
-  name          String               @db.VarChar(150)
-  status        RestaurantStatus     @default(ACTIVE)
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
+  id            String           @id @default(cuid())
+  name          String           @db.VarChar(150)
+  status        RestaurantStatus @default(ACTIVE)
+
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
 
   members       OrganizationMember[]
   restaurants   Restaurant[]
   subscriptions Subscription[]
   roles         Role[]
 
+  // Promociones
+  promotions    Promotion[]
+
+  // Clientes
+  customers     Customer[]
+  customerSegments CustomerSegment[]
+
+  // Canjes
+  redemptions   PromotionRedemption[]
+
+  // Auditoría
+  auditLogs     PromotionAuditLog[]
+
+  // Fidelización
+  loyaltyPrograms LoyaltyProgram[]
+
   @@index([status])
   @@map("organizations")
 }
+
+// ======================================================
+// ORGANIZATION MEMBER
+// ======================================================
 
 model OrganizationMember {
   id             String         @id @default(cuid())
   userId         String
   organizationId String
+
   role           MembershipRole @default(STAFF)
+  allRestaurants Boolean        @default(false)
+
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
-  allRestaurants Boolean        @default(false)
-
   user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([userId, organizationId])
@@ -115,33 +259,52 @@ model OrganizationMember {
   @@map("organization_members")
 }
 
+// ======================================================
+// RESTAURANT
+// ======================================================
+
 model Restaurant {
   id             String             @id @default(cuid())
   organizationId String
+
   name           String             @db.VarChar(150)
   description    String?            @db.VarChar(500)
+
   phone          String?            @db.VarChar(30)
   address        String             @db.VarChar(255)
   city           String             @db.VarChar(100)
   department     String?            @db.VarChar(100)
+
   latitude       Decimal?           @db.Decimal(10, 7)
   longitude      Decimal?           @db.Decimal(10, 7)
+
   website        String?            @db.VarChar(255)
   instagram      String?            @db.VarChar(100)
   facebook       String?            @db.VarChar(255)
+
   status         RestaurantStatus   @default(ACTIVE)
+
   cuisineId      String?
   priceRangeId   String?
+
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
   organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
   cuisine        Cuisine?           @relation(fields: [cuisineId], references: [id])
   priceRange     PriceRange?        @relation(fields: [priceRangeId], references: [id])
+
   memberships    RestaurantMember[]
   paymentMethods PaymentMethod[]
   subscriptions  Subscription[]
   roles          Role[]
+
+  // Promociones
+  promotionRestaurants PromotionRestaurant[]
+
+  // Canjes
+  redemptions    PromotionRedemption[]
 
   @@index([organizationId])
   @@index([city])
@@ -152,17 +315,25 @@ model Restaurant {
   @@map("restaurants")
 }
 
+// ======================================================
+// RESTAURANT MEMBER
+// ======================================================
+
 model RestaurantMember {
   id           String         @id @default(cuid())
   userId       String
   restaurantId String
+
   role         MembershipRole @default(STAFF)
   roleId       String?
+
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
   user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   restaurant   Restaurant     @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
   customRole   Role?          @relation(fields: [roleId], references: [id], onDelete: Restrict)
 
   @@unique([userId, restaurantId])
@@ -171,19 +342,29 @@ model RestaurantMember {
   @@map("restaurant_members")
 }
 
+// ======================================================
+// CUISINE
+// ======================================================
+
 model Cuisine {
   id          String       @id @default(cuid())
   code        String       @unique @db.VarChar(50)
   name        String       @db.VarChar(100)
   isActive    Boolean      @default(true)
   sortOrder   Int          @default(0)
+
   restaurants Restaurant[]
+
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
   @@index([isActive, sortOrder])
   @@map("cuisines")
 }
+
+// ======================================================
+// PRICE RANGE
+// ======================================================
 
 model PriceRange {
   id          String       @id @default(cuid())
@@ -192,38 +373,53 @@ model PriceRange {
   name        String       @db.VarChar(100)
   sortOrder   Int          @default(0)
   isActive    Boolean      @default(true)
+
   restaurants Restaurant[]
 
   @@index([isActive, sortOrder])
   @@map("price_ranges")
 }
 
+// ======================================================
+// PLAN
+// ======================================================
+
 model Plan {
   id                  String          @id @default(cuid())
   code                String          @unique @db.VarChar(50)
   name                String          @db.VarChar(100)
   description         String?         @db.VarChar(500)
+
   priceAmount         BigInt
   currency            String          @default("COP") @db.Char(3)
   billingInterval     BillingInterval @default(MONTH)
+
   trialDays           Int             @default(0)
+
   maxUsers            Int?
   maxActivePromotions Int?
   maxRestaurants      Int?
+
   requiresPayment     Boolean         @default(false)
   isFeatured          Boolean         @default(false)
   isActive            Boolean         @default(true)
   sortOrder           Int             @default(0)
+
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
 
   subscriptions          Subscription[] @relation("CurrentPlan")
   scheduledSubscriptions Subscription[] @relation("ScheduledPlan")
+
   features               PlanFeature[]
 
   @@index([isActive, sortOrder])
   @@map("plans")
 }
+
+// ======================================================
+// FEATURE
+// ======================================================
 
 model Feature {
   id          String        @id @default(cuid())
@@ -231,6 +427,7 @@ model Feature {
   name        String        @db.VarChar(150)
   description String?       @db.VarChar(500)
   isActive    Boolean       @default(true)
+
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
@@ -238,6 +435,10 @@ model Feature {
 
   @@map("features")
 }
+
+// ======================================================
+// PLAN FEATURE
+// ======================================================
 
 model PlanFeature {
   planId    String
@@ -250,31 +451,46 @@ model PlanFeature {
   @@map("plan_features")
 }
 
+// ======================================================
+// SUBSCRIPTION
+// La suscripción pertenece a la organización.
+// restaurantId se conserva como referencia opcional histórica.
+// ======================================================
+
 model Subscription {
   id                      String             @id @default(cuid())
-  restaurantId            String
+
+  restaurantId            String?
   organizationId          String
+
   planId                  String
   scheduledPlanId         String?
-  renewalOfSubscriptionId String?             @unique
+
+  renewalOfSubscriptionId String?            @unique
 
   status                  SubscriptionStatus @default(PENDING)
+
   startsAt                DateTime
   trialEndsAt             DateTime?
+
   currentPeriodStart      DateTime?
   currentPeriodEnd        DateTime?
+
   canceledAt              DateTime?
 
   createdAt               DateTime           @default(now())
   updatedAt               DateTime           @updatedAt
 
-  restaurant              Restaurant         @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+  restaurant              Restaurant?        @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+
   organization            Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
   plan                    Plan               @relation("CurrentPlan", fields: [planId], references: [id], onDelete: Restrict)
+
   scheduledPlan           Plan?              @relation("ScheduledPlan", fields: [scheduledPlanId], references: [id], onDelete: Restrict)
 
   renewalOfSubscription   Subscription?      @relation("SubscriptionRenewals", fields: [renewalOfSubscriptionId], references: [id], onDelete: Restrict)
+
   renewals                Subscription[]     @relation("SubscriptionRenewals")
 
   payments                Payment[]
@@ -287,40 +503,61 @@ model Subscription {
   @@map("subscriptions")
 }
 
+// ======================================================
+// PAYMENT METHOD
+// ======================================================
+
 model PaymentMethod {
   id                      String              @id @default(cuid())
   restaurantId            String
+
   provider                PaymentProvider     @default(WOMPI)
   type                    PaymentMethodType
   status                  PaymentMethodStatus @default(ACTIVE)
+
   providerPaymentSourceId String              @unique @db.VarChar(191)
+
   brand                   String?             @db.VarChar(50)
   lastFour                String?             @db.VarChar(4)
+
   createdAt               DateTime            @default(now())
   updatedAt               DateTime            @updatedAt
 
   restaurant              Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+
   payments                Payment[]
 
   @@index([restaurantId, status])
   @@map("payment_methods")
 }
 
+// ======================================================
+// PAYMENT
+// ======================================================
+
 model Payment {
   id                    String          @id @default(cuid())
+
   subscriptionId        String
   paymentMethodId       String?
+
   provider              PaymentProvider @default(WOMPI)
+
   providerTransactionId String?         @unique @db.VarChar(191)
   reference             String          @unique @db.VarChar(100)
+
   amount                BigInt
   currency              String          @default("COP") @db.Char(3)
+
   status                PaymentStatus   @default(PENDING)
+
   paidAt                DateTime?
+
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
 
   subscription          Subscription    @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+
   paymentMethod         PaymentMethod?  @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
 
   @@index([subscriptionId, status])
@@ -328,12 +565,19 @@ model Payment {
   @@map("payments")
 }
 
+// ======================================================
+// REFRESH TOKEN
+// ======================================================
+
 model RefreshToken {
   id        String    @id @default(cuid())
   userId    String
+
   tokenHash String    @unique @db.VarChar(255)
+
   expiresAt DateTime
   revokedAt DateTime?
+
   createdAt DateTime  @default(now())
 
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -343,21 +587,30 @@ model RefreshToken {
   @@map("refresh_tokens")
 }
 
+// ======================================================
+// ROLE
+// ======================================================
+
 model Role {
   id             String             @id @default(cuid())
   code           String             @db.VarChar(50)
   name           String             @db.VarChar(100)
   description    String?            @db.VarChar(255)
+
   restaurantId   String?
   organizationId String?
+
   isSystem       Boolean            @default(false)
   isDefault      Boolean            @default(false)
   isActive       Boolean            @default(true)
+
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
   restaurant     Restaurant?        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
   organization   Organization?      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   permissions    RolePermission[]
   members        RestaurantMember[]
 
@@ -368,13 +621,20 @@ model Role {
   @@map("roles")
 }
 
+// ======================================================
+// PERMISSION
+// ======================================================
+
 model Permission {
   id          String           @id @default(cuid())
   code        String           @unique @db.VarChar(100)
+
   name        String           @db.VarChar(150)
   description String?          @db.VarChar(255)
   module      String           @db.VarChar(50)
+
   isActive    Boolean          @default(true)
+
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
@@ -384,15 +644,605 @@ model Permission {
   @@map("permissions")
 }
 
+// ======================================================
+// ROLE PERMISSION
+// ======================================================
+
 model RolePermission {
   roleId       String
   permissionId String
+
   createdAt    DateTime   @default(now())
 
   role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
   permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
   @@id([roleId, permissionId])
   @@index([permissionId])
   @@map("role_permissions")
 }
+
+// ======================================================
+// PROMOTION CATEGORY
+// ======================================================
+
+model PromotionCategory {
+  id          String   @id @default(cuid())
+
+  code        String   @unique @db.VarChar(50)
+  name        String   @db.VarChar(100)
+  description String?  @db.VarChar(255)
+
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+
+  promotions  Promotion[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+  @@map("promotion_categories")
+}
+
+// ======================================================
+// PROMOTION
+// ======================================================
+
+model Promotion {
+  id             String          @id @default(cuid())
+
+  organizationId String
+  categoryId     String?
+
+  createdById    String
+  updatedById    String?
+
+  name              String @db.VarChar(150)
+  shortDescription  String? @db.VarChar(255)
+  description       String? @db.Text
+  termsAndConditions String? @db.Text
+
+  type             PromotionType
+  status           PromotionStatus @default(DRAFT)
+
+  discountPercentage Decimal? @db.Decimal(5, 2)
+  discountAmount     Decimal? @db.Decimal(12, 2)
+  promotionalPrice   Decimal? @db.Decimal(12, 2)
+
+  benefitDescription String? @db.VarChar(500)
+
+  startsAt         DateTime?
+  endsAt           DateTime?
+
+  timezone         String @default("America/Bogota") @db.VarChar(100)
+
+  coverImageUrl    String? @db.VarChar(500)
+
+  globalRedemptionsCount Int @default(0)
+
+  minimumPurchaseAmount Decimal? @db.Decimal(12, 2)
+
+  isCombinable     Boolean @default(false)
+
+  publishedAt      DateTime?
+  archivedAt       DateTime?
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  category         PromotionCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  creator          User @relation("PromotionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  updater          User? @relation("PromotionUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  restaurants      PromotionRestaurant[]
+
+  schedules        PromotionSchedule[]
+
+  usageRule        PromotionUsageRule?
+
+  images           PromotionImage[]
+
+  targetSegments   PromotionSegment[]
+
+  redemptionIntents RedemptionIntent[]
+
+  redemptions      PromotionRedemption[]
+
+  auditLogs        PromotionAuditLog[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+  @@index([categoryId])
+  @@index([startsAt, endsAt])
+  @@map("promotions")
+}
+
+// ======================================================
+// PROMOTION RESTAURANT
+// ======================================================
+
+model PromotionRestaurant {
+  id           String @id @default(cuid())
+
+  promotionId  String
+  restaurantId String
+
+  createdAt    DateTime @default(now())
+
+  promotion    Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+
+  @@unique([promotionId, restaurantId])
+  @@index([restaurantId])
+  @@map("promotion_restaurants")
+}
+
+// ======================================================
+// PROMOTION SCHEDULE
+// ======================================================
+
+model PromotionSchedule {
+  id          String @id @default(cuid())
+
+  promotionId String
+
+  // 1 = lunes, 7 = domingo
+  dayOfWeek   Int
+
+  startsAt    String @db.VarChar(5)
+  endsAt      String @db.VarChar(5)
+
+  isActive    Boolean @default(true)
+
+  promotion   Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([promotionId, dayOfWeek, isActive])
+  @@map("promotion_schedules")
+}
+
+// ======================================================
+// PROMOTION USAGE RULE
+// ======================================================
+
+model PromotionUsageRule {
+  id          String @id @default(cuid())
+
+  promotionId String @unique
+
+  maxGlobalRedemptions Int?
+  maxRedemptionsPerCustomer Int?
+
+  frequency PromotionFrequency @default(UNLIMITED)
+
+  intervalDays Int?
+
+  monthlyPeriod PromotionLimitPeriod?
+
+  inventoryLimit Int?
+
+  minimumPurchaseAmount Decimal? @db.Decimal(12, 2)
+
+  promotion Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("promotion_usage_rules")
+}
+
+// ======================================================
+// PROMOTION IMAGE
+// ======================================================
+
+model PromotionImage {
+  id          String @id @default(cuid())
+
+  promotionId String
+
+  url         String @db.VarChar(500)
+  storageKey  String? @db.VarChar(255)
+  altText     String? @db.VarChar(255)
+
+  sortOrder   Int @default(0)
+
+  promotion   Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+
+  @@index([promotionId, sortOrder])
+  @@map("promotion_images")
+}
+
+// ======================================================
+// CUSTOMER
+// ======================================================
+
+model Customer {
+  id             String @id @default(cuid())
+
+  organizationId String
+
+  firstName      String @db.VarChar(100)
+  lastName       String? @db.VarChar(100)
+
+  email          String? @db.VarChar(191)
+  phone          String? @db.VarChar(30)
+
+  birthDate      DateTime?
+
+  status         CustomerStatus @default(ACTIVE)
+
+  marketingConsent   Boolean @default(false)
+  marketingConsentAt DateTime?
+
+  privacyAcceptedAt DateTime?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  redemptions    PromotionRedemption[]
+
+  redemptionIntents RedemptionIntent[]
+
+  segmentMemberships CustomerSegmentMember[]
+
+  loyaltyAccounts LoyaltyAccount[]
+
+  @@unique([organizationId, email])
+  @@unique([organizationId, phone])
+
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+  @@index([birthDate])
+  @@map("customers")
+}
+
+// ======================================================
+// CUSTOMER SEGMENT
+// ======================================================
+
+model CustomerSegment {
+  id             String @id @default(cuid())
+
+  organizationId String
+
+  name           String @db.VarChar(120)
+  description    String? @db.VarChar(500)
+
+  type           CustomerSegmentType @default(STATIC)
+
+  // Reglas para segmentos dinámicos.
+  rules          Json?
+
+  isActive       Boolean @default(true)
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  members        CustomerSegmentMember[]
+
+  promotions     PromotionSegment[]
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId, isActive])
+  @@map("customer_segments")
+}
+
+// ======================================================
+// CUSTOMER SEGMENT MEMBER
+// ======================================================
+
+model CustomerSegmentMember {
+  id          String @id @default(cuid())
+
+  customerId  String
+  segmentId   String
+
+  assignedAt  DateTime @default(now())
+
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  segment     CustomerSegment @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, segmentId])
+  @@index([segmentId])
+  @@map("customer_segment_members")
+}
+
+// ======================================================
+// PROMOTION SEGMENT
+// ======================================================
+
+model PromotionSegment {
+  id          String @id @default(cuid())
+
+  promotionId String
+  segmentId   String
+
+  promotion   Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+
+  segment     CustomerSegment @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+
+  @@unique([promotionId, segmentId])
+  @@index([segmentId])
+  @@map("promotion_segments")
+}
+
+// ======================================================
+// REDEMPTION INTENT
+// ======================================================
+
+model RedemptionIntent {
+  id          String @id @default(cuid())
+
+  promotionId String
+  customerId  String
+
+  status      RedemptionIntentStatus @default(PENDING)
+
+  expiresAt   DateTime
+
+  validatedAt DateTime?
+  consumedAt  DateTime?
+
+  promotion   Promotion @relation(fields: [promotionId], references: [id], onDelete: Restrict)
+
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  token       RedemptionToken?
+
+  redemption  PromotionRedemption?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([customerId, status])
+  @@index([promotionId, status])
+  @@index([expiresAt])
+  @@map("redemption_intents")
+}
+
+// ======================================================
+// REDEMPTION TOKEN
+// ======================================================
+
+model RedemptionToken {
+  id          String @id @default(cuid())
+
+  intentId    String @unique
+
+  // Hash del token, nunca el valor original del QR.
+  tokenHash   String @unique @db.VarChar(255)
+
+  expiresAt   DateTime
+  consumedAt  DateTime?
+
+  intent      RedemptionIntent @relation(fields: [intentId], references: [id], onDelete: Restrict)
+
+  createdAt   DateTime @default(now())
+
+  @@index([expiresAt])
+  @@map("redemption_tokens")
+}
+
+// ======================================================
+// PROMOTION REDEMPTION
+// ======================================================
+
+model PromotionRedemption {
+  id              String @id @default(cuid())
+
+  organizationId  String
+  promotionId     String
+  customerId      String
+  restaurantId    String
+
+  intentId        String @unique
+
+  employeeId      String
+
+  status          RedemptionStatus @default(CONFIRMED)
+
+  redeemedAt      DateTime @default(now())
+
+  idempotencyKey  String @unique @db.VarChar(191)
+
+  reversedAt      DateTime?
+  reversedById    String?
+  reversalReason  String? @db.VarChar(500)
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  promotion       Promotion @relation(fields: [promotionId], references: [id], onDelete: Restrict)
+
+  customer        Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  restaurant      Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
+
+  employee        User @relation("RedemptionEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+
+  reversedBy      User? @relation("RedemptionReversalActor", fields: [reversedById], references: [id], onDelete: SetNull)
+
+  intent          RedemptionIntent @relation(fields: [intentId], references: [id], onDelete: Restrict)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId, redeemedAt])
+  @@index([promotionId, redeemedAt])
+  @@index([customerId, redeemedAt])
+  @@index([restaurantId, redeemedAt])
+  @@index([employeeId, redeemedAt])
+  @@index([status])
+  @@map("promotion_redemptions")
+}
+
+// ======================================================
+// LOYALTY PROGRAM
+// ======================================================
+
+model LoyaltyProgram {
+  id             String @id @default(cuid())
+
+  organizationId String
+
+  name           String @db.VarChar(150)
+  description    String? @db.VarChar(500)
+
+  status         LoyaltyProgramStatus @default(DRAFT)
+
+  pointsPerVisit Int @default(1)
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  accounts       LoyaltyAccount[]
+
+  rewards        LoyaltyReward[]
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId, status])
+  @@map("loyalty_programs")
+}
+
+// ======================================================
+// LOYALTY ACCOUNT
+// ======================================================
+
+model LoyaltyAccount {
+  id             String @id @default(cuid())
+
+  programId      String
+  customerId     String
+
+  pointsBalance  Int @default(0)
+
+  level          String? @db.VarChar(50)
+
+  program        LoyaltyProgram @relation(fields: [programId], references: [id], onDelete: Restrict)
+
+  customer       Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  transactions   LoyaltyTransaction[]
+
+  @@unique([programId, customerId])
+  @@index([customerId])
+  @@map("loyalty_accounts")
+}
+
+// ======================================================
+// LOYALTY REWARD
+// ======================================================
+
+model LoyaltyReward {
+  id          String @id @default(cuid())
+
+  programId   String
+
+  name        String @db.VarChar(150)
+  description String? @db.VarChar(500)
+
+  type        LoyaltyRewardType
+
+  requiredPoints Int
+
+  isActive    Boolean @default(true)
+
+  program     LoyaltyProgram @relation(fields: [programId], references: [id], onDelete: Restrict)
+
+  transactions LoyaltyTransaction[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([programId, isActive])
+  @@map("loyalty_rewards")
+}
+
+// ======================================================
+// LOYALTY TRANSACTION
+// ======================================================
+
+model LoyaltyTransaction {
+  id          String @id @default(cuid())
+
+  accountId   String
+
+  rewardId    String?
+
+  type        LoyaltyTransactionType
+
+  points      Int
+
+  description String? @db.VarChar(255)
+
+  referenceId String? @db.VarChar(191)
+
+  account     LoyaltyAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  reward      LoyaltyReward? @relation(fields: [rewardId], references: [id], onDelete: SetNull)
+
+  createdAt   DateTime @default(now())
+
+  @@index([accountId, createdAt])
+  @@index([referenceId])
+  @@index([rewardId])
+  @@map("loyalty_transactions")
+}
+
+// ======================================================
+// PROMOTION AUDIT LOG
+// ======================================================
+
+model PromotionAuditLog {
+  id             String @id @default(cuid())
+
+  organizationId String
+
+  promotionId    String?
+
+  actorId        String?
+
+  action         String @db.VarChar(100)
+
+  entityType     String @db.VarChar(100)
+
+  entityId       String? @db.VarChar(191)
+
+  previousData   Json?
+  newData        Json?
+
+  ipAddress      String? @db.VarChar(45)
+  userAgent      String? @db.VarChar(500)
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  promotion      Promotion? @relation(fields: [promotionId], references: [id], onDelete: SetNull)
+
+  actor          User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([promotionId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId])
+  @@map("promotion_audit_logs")
+}
+
