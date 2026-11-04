@@ -129,14 +129,16 @@ export class PromotionsService {
     await this.validateDto(dto);
     await this.validateCategory(dto.categoryId);
     const restaurants = await this.resolveRestaurants(organizationId, access.restaurantIds, dto.restaurantIds);
-    const activeCount = await this.prisma.promotion.count({
-      where: { organizationId, status: { in: ['ACTIVE', 'SCHEDULED'] }, archivedAt: null },
-    });
-    await this.planLimits.assertLimitNotReached(organizationId, 'maxActivePromotions', activeCount);
     await this.featureAccess.assertFeatureEnabled(organizationId, 'PROMOTIONS_BASIC');
     const status = dto.startsAt && new Date(dto.startsAt) > new Date()
       ? PromotionStatus.SCHEDULED
       : PromotionStatus.DRAFT;
+    if (status === PromotionStatus.SCHEDULED) {
+      const activeCount = await this.prisma.promotion.count({
+        where: { organizationId, status: { in: ['ACTIVE', 'SCHEDULED'] }, archivedAt: null },
+      });
+      await this.planLimits.assertLimitNotReached(organizationId, 'maxActivePromotions', activeCount);
+    }
     const { schedules, images, ...data } = dto;
     return this.prisma.promotion.create({
       data: {
@@ -276,7 +278,7 @@ export class PromotionsService {
     if (action === 'publish') {
       if (promotion.status !== 'DRAFT' && promotion.status !== 'SCHEDULED') throw new ConflictException('Only drafts or scheduled promotions can be published');
       status = promotion.startsAt && promotion.startsAt > now ? PromotionStatus.SCHEDULED : PromotionStatus.ACTIVE;
-      if (status === PromotionStatus.ACTIVE) {
+      if (status === PromotionStatus.ACTIVE || status === PromotionStatus.SCHEDULED) {
         const count = await this.prisma.promotion.count({
           where: { organizationId, id: { not: promotionId }, status: { in: ['ACTIVE', 'SCHEDULED'] }, archivedAt: null },
         });
@@ -288,6 +290,10 @@ export class PromotionsService {
     } else if (action === 'resume') {
       if (promotion.status !== 'PAUSED' || (promotion.endsAt && promotion.endsAt <= now)) throw new ConflictException('This promotion cannot be resumed');
       status = promotion.startsAt && promotion.startsAt > now ? PromotionStatus.SCHEDULED : PromotionStatus.ACTIVE;
+      const count = await this.prisma.promotion.count({
+        where: { organizationId, id: { not: promotionId }, status: { in: ['ACTIVE', 'SCHEDULED'] }, archivedAt: null },
+      });
+      await this.planLimits.assertLimitNotReached(organizationId, 'maxActivePromotions', count);
     } else if (action === 'unarchive') {
       if (promotion.status !== 'ARCHIVED') throw new ConflictException('Only archived promotions can be restored');
       status = PromotionStatus.DRAFT;

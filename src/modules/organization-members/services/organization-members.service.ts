@@ -107,7 +107,7 @@ export class OrganizationMembersService {
   ): Promise<void> {
     await this.featureAccessService.assertFeatureEnabled(
       organizationId,
-      'TEAM_MEMBERS',
+      'TEAM_MANAGEMENT',
     );
   }
 
