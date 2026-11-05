@@ -17,6 +17,7 @@ import { WorkspaceAuthorizationService } from '../../../common/authorization/ser
 import { FeatureAccessService } from '../../plan-access/application/services/feature-access.service.js';
 import { PlanLimitsService } from '../../plan-access/application/services/plan-limits.service.js';
 import { CreatePromotionDto } from '../dto/create-promotion.dto.js';
+import type { MobileRedemptionValidationDto } from '../dto/create-promotion.dto.js';
 
 const tokenHash = (token: string) =>
   createHash('sha256').update(token).digest('hex');
@@ -28,7 +29,7 @@ export class PromotionsService {
     private readonly authorization: WorkspaceAuthorizationService,
     private readonly featureAccess: FeatureAccessService,
     private readonly planLimits: PlanLimitsService,
-  ) {}
+  ) { }
 
   async list(userId: string, organizationId: string) {
     await this.requireOrganizationPermission(userId, organizationId, 'promotions.view');
@@ -268,7 +269,7 @@ export class PromotionsService {
   async transition(userId: string, organizationId: string, promotionId: string, action: 'publish' | 'pause' | 'resume' | 'archive' | 'unarchive') {
     const permission = action === 'archive' || action === 'unarchive' ? 'promotions.archive'
       : action === 'pause' || action === 'resume' ? 'promotions.pause'
-      : 'promotions.publish';
+        : 'promotions.publish';
     await this.requireOrganizationPermission(userId, organizationId, permission);
     const promotion = await this.prisma.promotion.findFirst({ where: { id: promotionId, organizationId } });
     if (!promotion) throw new NotFoundException('Promotion not found');
@@ -367,6 +368,174 @@ export class PromotionsService {
     };
   }
 
+  async validateMobileRedemption(userId: string, restaurantId: string, input: MobileRedemptionValidationDto) {
+    await this.requireWorkspacePermission(userId, restaurantId, 'redemptions.validate');
+    const redemption = await this.findMobileRedemption(restaurantId, input);
+    if (!redemption) return { status: 'INVALID', message: 'El QR o código no es válido.' };
+    const promotion = await this.prisma.promotion.findUnique({ where: { id: redemption.promotionId }, include: { usageRule: true } });
+    const restaurant = await this.prisma.restaurant.findFirst({
+      where: { id: restaurantId, status: 'ACTIVE' }, select: { id: true, name: true },
+    });
+    if (!promotion || !restaurant || !(await this.isPromotionAtRestaurant(promotion.id, promotion.organizationId, restaurantId))) {
+      return { status: 'UNAVAILABLE', message: 'La promoción no está disponible en esta sede.' };
+    }
+    await this.featureAccess.assertFeatureEnabled(promotion.organizationId, 'QR_REDEMPTIONS');
+    const unavailableReason = await this.mobilePromotionUnavailableReason(promotion);
+    const status = redemption.status === 'REDEEMED' ? 'USED'
+      : redemption.expiresAt <= new Date() ? 'EXPIRED'
+      : unavailableReason ? 'UNAVAILABLE'
+          : 'VALID';
+    return {
+      status,
+      message: status === 'USED' ? 'Este bono ya fue utilizado.'
+        : status === 'EXPIRED' ? 'Este bono venció. Solicita uno nuevo desde la app móvil.'
+        : status === 'UNAVAILABLE' ? this.mobilePromotionUnavailableMessage(unavailableReason) : 'Bono válido. Confirma con el cliente antes de continuar.',
+      reason: status === 'UNAVAILABLE' ? unavailableReason : status,
+      promotion: { id: promotion.id, name: promotion.name, benefitDescription: promotion.benefitDescription, description: promotion.shortDescription ?? promotion.description, startsAt: promotion.startsAt, endsAt: promotion.endsAt },
+      restaurant: { id: restaurant.id, name: restaurant.name },
+      expiresAt: redemption.expiresAt,
+      redemptionId: redemption.id,
+    };
+  }
+
+  async confirmMobileRedemption(
+    userId: string,
+    restaurantId: string,
+    input: MobileRedemptionValidationDto,
+    requestMeta?: { ipAddress?: string; userAgent?: string },
+  ) {
+    await this.requireWorkspacePermission(userId, restaurantId, 'redemptions.confirm');
+    const redemption = await this.findMobileRedemption(restaurantId, input);
+    if (!redemption) throw new NotFoundException('El QR o código no es válido.');
+    const now = new Date();
+    if (redemption.status === 'REDEEMED') throw new ConflictException('Este bono ya fue utilizado.');
+    if (redemption.expiresAt <= now) throw new ConflictException('Este bono venció. Solicita uno nuevo desde la app móvil.');
+    const promotion = await this.prisma.promotion.findUnique({ where: { id: redemption.promotionId }, include: { usageRule: true } });
+    if (!promotion || (await this.mobilePromotionUnavailableReason(promotion)) || !(await this.isPromotionAtRestaurant(promotion.id, promotion.organizationId, restaurantId))) {
+      throw new ConflictException('La promoción ya no está vigente en esta sede.');
+    }
+    await this.featureAccess.assertFeatureEnabled(promotion.organizationId, 'QR_REDEMPTIONS');
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const currentPromotion = await tx.promotion.findFirst({
+          where: { id: promotion.id, organizationId: promotion.organizationId },
+          include: { usageRule: true },
+        });
+        const currentRestaurant = await tx.restaurant.findFirst({
+          where: { id: restaurantId, organizationId: promotion.organizationId, status: 'ACTIVE' },
+          select: { id: true },
+        });
+        const participatingLocation = await tx.promotionRestaurant.findUnique({
+          where: { promotionId_restaurantId: { promotionId: promotion.id, restaurantId } },
+          select: { id: true },
+        });
+        if (!currentPromotion || !currentRestaurant || !participatingLocation || (await this.mobilePromotionUnavailableReason(currentPromotion))) {
+          throw new ConflictException('La promoción ya no está vigente en esta sede.');
+        }
+        const consumed = await tx.mobilePromotionRedemption.updateMany({
+          where: {
+            id: redemption.id,
+            restaurantId,
+            status: 'PENDING',
+            expiresAt: { gt: now },
+            ...(input.qrPayload ? { tokenHash: tokenHash(input.qrPayload) } : { codeHash: tokenHash(input.backupCode!) }),
+          },
+          data: { status: 'REDEEMED', redeemedAt: now },
+        });
+        if (consumed.count !== 1) throw new ConflictException('Este bono venció o ya fue utilizado.');
+        const rule = currentPromotion.usageRule;
+        if (rule?.maxGlobalRedemptions != null) {
+          const incremented = await tx.promotion.updateMany({
+            where: {
+              id: promotion.id,
+              status: 'ACTIVE',
+              archivedAt: null,
+              globalRedemptionsCount: { lt: rule.maxGlobalRedemptions },
+              AND: [{ OR: [{ startsAt: null }, { startsAt: { lte: now } }] }],
+              OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+            },
+            data: { globalRedemptionsCount: { increment: 1 } },
+          });
+          if (incremented.count !== 1) throw new ConflictException('La promoción agotó sus canjes disponibles.');
+          if (currentPromotion.globalRedemptionsCount + 1 >= rule.maxGlobalRedemptions) {
+            await tx.promotion.update({ where: { id: promotion.id }, data: { status: PromotionStatus.EXHAUSTED } });
+          }
+        } else {
+          const incremented = await tx.promotion.updateMany({
+            where: {
+              id: promotion.id,
+              status: 'ACTIVE',
+              archivedAt: null,
+              AND: [{ OR: [{ startsAt: null }, { startsAt: { lte: now } }] }],
+              OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+            },
+            data: { globalRedemptionsCount: { increment: 1 } },
+          });
+          if (incremented.count !== 1) throw new ConflictException('La promoción ya no está vigente.');
+        }
+        await tx.promotionAuditLog.create({
+          data: {
+            organizationId: promotion.organizationId,
+            promotionId: promotion.id,
+            actorId: userId,
+            action: 'MOBILE_REDEMPTION_CONFIRMED',
+            entityType: 'MOBILE_REDEMPTION',
+            entityId: redemption.id,
+            newData: { restaurantId, redeemedAt: now.toISOString() },
+            ipAddress: requestMeta?.ipAddress,
+            userAgent: requestMeta?.userAgent?.slice(0, 500),
+          },
+        });
+        return { id: redemption.id, status: 'REDEEMED', redeemedAt: now };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
+        throw new ConflictException('El bono cambió mientras se confirmaba. Valídalo nuevamente.');
+      }
+      throw error;
+    }
+  }
+
+  private async findMobileRedemption(restaurantId: string, input: MobileRedemptionValidationDto) {
+    const qrPayload = input.qrPayload?.trim();
+    const backupCode = input.backupCode?.trim();
+    if (Boolean(qrPayload) === Boolean(backupCode)) {
+      throw new BadRequestException('Envía el QR o el código de respaldo de 8 dígitos.');
+    }
+    return this.prisma.mobilePromotionRedemption.findFirst({
+      where: { restaurantId, ...(qrPayload ? { tokenHash: tokenHash(qrPayload) } : { codeHash: tokenHash(backupCode!) }) },
+      select: { id: true, promotionId: true, status: true, expiresAt: true },
+    });
+  }
+
+  private async isPromotionAtRestaurant(promotionId: string, organizationId: string, restaurantId: string) {
+    const [restaurant, link] = await Promise.all([
+      this.prisma.restaurant.findFirst({ where: { id: restaurantId, organizationId, status: 'ACTIVE' }, select: { id: true } }),
+      this.prisma.promotionRestaurant.findUnique({ where: { promotionId_restaurantId: { promotionId, restaurantId } }, select: { id: true } }),
+    ]);
+    return Boolean(restaurant && link);
+  }
+
+  private async mobilePromotionUnavailableReason(promotion: { id: string; status: string; archivedAt: Date | null; startsAt: Date | null; endsAt: Date | null; schedules?: any[]; timezone?: string | null; globalRedemptionsCount?: number; usageRule?: { maxGlobalRedemptions: number | null } | null }) {
+    const now = new Date();
+    if (promotion.status !== 'ACTIVE' || promotion.archivedAt) return 'NOT_ACTIVE';
+    if (promotion.startsAt && promotion.startsAt > now) return 'NOT_STARTED';
+    if (promotion.endsAt && promotion.endsAt <= now) return 'PROMOTION_ENDED';
+    if (promotion.usageRule?.maxGlobalRedemptions != null && (promotion.globalRedemptionsCount ?? 0) >= promotion.usageRule.maxGlobalRedemptions) return 'EXHAUSTED';
+    // Mobile vouchers use the promotion's date range, not its optional weekly schedule.
+    return null;
+  }
+
+  private mobilePromotionUnavailableMessage(reason: string | null) {
+    switch (reason) {
+      case 'NOT_ACTIVE': return 'La promoción está pausada, archivada o no publicada.';
+      case 'NOT_STARTED': return 'La promoción todavía no está vigente.';
+      case 'PROMOTION_ENDED': return 'La fecha de vigencia de la promoción ya terminó.';
+      case 'EXHAUSTED': return 'La promoción agotó el máximo de bonos disponibles.';
+      default: return 'La promoción no está disponible en esta sede.';
+    }
+  }
+
   async confirmRedemption(userId: string, restaurantId: string, token: string, idempotencyKey: string) {
     await this.requireWorkspacePermission(userId, restaurantId, 'redemptions.confirm');
     if (!idempotencyKey?.trim()) throw new BadRequestException('Idempotency key is required');
@@ -445,16 +614,58 @@ export class PromotionsService {
 
   async listRedemptions(userId: string, restaurantId: string) {
     await this.requireWorkspacePermission(userId, restaurantId, 'redemptions.view');
-    return this.prisma.promotionRedemption.findMany({
-      where: { restaurantId },
-      include: {
-        promotion: { select: { id: true, name: true, type: true } },
-        customer: { select: { id: true, firstName: true, lastName: true } },
-        employee: { select: { id: true, firstName: true } },
-      },
-      orderBy: { redeemedAt: 'desc' },
-      take: 100,
+    const [webRedemptions, mobileRedemptions] = await Promise.all([
+      this.prisma.promotionRedemption.findMany({
+        where: { restaurantId },
+        include: {
+          promotion: { select: { id: true, name: true, type: true } },
+          customer: { select: { id: true, firstName: true, lastName: true } },
+          employee: { select: { id: true, firstName: true } },
+        },
+        orderBy: { redeemedAt: 'desc' },
+        take: 100,
+      }),
+      this.prisma.mobilePromotionRedemption.findMany({
+        where: { restaurantId, status: 'REDEEMED', redeemedAt: { not: null } },
+        select: { id: true, accountId: true, promotionId: true, redeemedAt: true },
+        orderBy: { redeemedAt: 'desc' },
+        take: 100,
+      }),
+    ]);
+    if (!mobileRedemptions.length) return webRedemptions;
+
+    const mobilePromotionIds = [...new Set(mobileRedemptions.map((redemption) => redemption.promotionId))];
+    const mobileRedemptionIds = mobileRedemptions.map((redemption) => redemption.id);
+    const [promotions, auditEntries] = await Promise.all([
+      this.prisma.promotion.findMany({
+        where: { id: { in: mobilePromotionIds } },
+        select: { id: true, name: true, type: true },
+      }),
+      this.prisma.promotionAuditLog.findMany({
+        where: { entityType: 'MOBILE_REDEMPTION', entityId: { in: mobileRedemptionIds }, action: 'MOBILE_REDEMPTION_CONFIRMED' },
+        include: { actor: { select: { id: true, firstName: true } } },
+      }),
+    ]);
+    const promotionById = new Map(promotions.map((promotion) => [promotion.id, promotion]));
+    const auditByRedemptionId = new Map(auditEntries.map((entry) => [entry.entityId, entry]));
+    const mobileRecords = mobileRedemptions.flatMap((redemption) => {
+      const promotion = promotionById.get(redemption.promotionId);
+      if (!promotion || !redemption.redeemedAt) return [];
+      const audit = auditByRedemptionId.get(redemption.id);
+      return [{
+        id: redemption.id,
+        source: 'MOBILE',
+        status: 'CONFIRMED',
+        redeemedAt: redemption.redeemedAt,
+        reversalReason: null,
+        promotion,
+        customer: { id: redemption.accountId, firstName: 'Cliente de app móvil', lastName: null },
+        employee: { id: audit?.actor?.id ?? '', firstName: audit?.actor?.firstName ?? 'Personal de sede' },
+      }];
     });
+    return [...webRedemptions, ...mobileRecords]
+      .sort((a, b) => b.redeemedAt.getTime() - a.redeemedAt.getTime())
+      .slice(0, 100);
   }
 
   async reverseRedemption(userId: string, restaurantId: string, redemptionId: string, reason: string) {
@@ -651,9 +862,9 @@ export class PromotionsService {
     ) throw new BadRequestException('benefitDescription is required for this promotion type');
     for (const schedule of dto.schedules ?? []) {
       if (!Number.isInteger(schedule.dayOfWeek) || schedule.dayOfWeek < 1 || schedule.dayOfWeek > 7 ||
-          !/^([01]\d|2[0-3]):[0-5]\d$/.test(schedule.startsAt) ||
-          !/^([01]\d|2[0-3]):[0-5]\d$/.test(schedule.endsAt) ||
-          schedule.startsAt >= schedule.endsAt) throw new BadRequestException('Invalid promotion schedule');
+        !/^([01]\d|2[0-3]):[0-5]\d$/.test(schedule.startsAt) ||
+        !/^([01]\d|2[0-3]):[0-5]\d$/.test(schedule.endsAt) ||
+        schedule.startsAt >= schedule.endsAt) throw new BadRequestException('Invalid promotion schedule');
     }
     if (dto.timezone) {
       try { new Intl.DateTimeFormat('en-US', { timeZone: dto.timezone }); }

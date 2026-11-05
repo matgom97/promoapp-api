@@ -20,6 +20,8 @@ import {
   RedemptionTokenDto,
   RegisterCustomerProfileDto,
   ReverseRedemptionDto,
+  MobileRedemptionValidationDto,
+  MobileRedemptionConfirmationDto,
 } from '../dto/create-promotion.dto.js';
 import { PromotionsService } from '../services/promotions.service.js';
 
@@ -99,6 +101,30 @@ export class PromotionsController {
     const restaurantId = req.header('X-Restaurant-Id');
     if (!restaurantId) throw new UnauthorizedException('Select a restaurant');
     return { message: 'Redemption confirmed', data: await this.promotions.confirmRedemption(user.userId, restaurantId, body.token, body.idempotencyKey) };
+  }
+
+  @Post('mobile-redemptions/validate')
+  @UseGuards(WorkspaceContextGuard)
+  async validateMobileRedemption(@Req() req: AuthRequest, @Body() dto: MobileRedemptionValidationDto) {
+    const user = this.user(req);
+    const restaurantId = req.header('X-Restaurant-Id');
+    if (!restaurantId) throw new UnauthorizedException('Select a restaurant');
+    return { message: 'Mobile redemption checked', data: await this.promotions.validateMobileRedemption(user.userId, restaurantId, dto) };
+  }
+
+  @Post('mobile-redemptions/confirm')
+  @UseGuards(WorkspaceContextGuard)
+  async confirmMobileRedemption(@Req() req: AuthRequest, @Body() dto: MobileRedemptionConfirmationDto) {
+    const user = this.user(req);
+    const restaurantId = req.header('X-Restaurant-Id');
+    if (!restaurantId) throw new UnauthorizedException('Select a restaurant');
+    return {
+      message: 'Mobile redemption confirmed',
+      data: await this.promotions.confirmMobileRedemption(user.userId, restaurantId, dto, {
+        ipAddress: req.ip,
+        userAgent: req.header('user-agent'),
+      }),
+    };
   }
 
   @Get('redemptions/history')

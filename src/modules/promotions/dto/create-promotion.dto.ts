@@ -12,6 +12,7 @@ import {
   ValidateNested,
   IsInt,
   IsUrl,
+  Matches,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PromotionFrequency, PromotionType } from '@prisma/client';
@@ -60,6 +61,13 @@ export class CreateRedemptionIntentDto {
 export class RedemptionTokenDto {
   @IsString() @MinLength(20) token!: string;
 }
+
+export class MobileRedemptionValidationDto {
+  @IsOptional() @IsString() @MinLength(1) qrPayload?: string;
+  @IsOptional() @IsString() @Matches(/^\d{8}$/, { message: 'backupCode must contain exactly 8 digits' }) backupCode?: string;
+}
+
+export class MobileRedemptionConfirmationDto extends MobileRedemptionValidationDto {}
 
 export class ConfirmRedemptionDto extends RedemptionTokenDto {
   @IsString() @MinLength(8) idempotencyKey!: string;
